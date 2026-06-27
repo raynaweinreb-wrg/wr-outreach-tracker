@@ -385,6 +385,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
       </div>
       <div class="form-group"><label>Offer / Hook</label><textarea id="init-offer" placeholder="What's the angle? e.g. Free AI audit, New service launch, Q3 check-in + case study, Event invite…"></textarea></div>
       <div class="form-group"><label>Target Send Date</label><input type="date" id="init-date"></div>
+      <div class="form-group"><label>Contact Limit</label><input type="number" id="init-contact-limit" placeholder="30" min="1" max="500" style="width:120px"></div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeModal('modal-new-init')">Cancel</button>
         <button class="btn btn-primary" onclick="createInit()">Create Initiative</button>
@@ -776,6 +777,7 @@ function openNewInitModal(idea) {
   document.getElementById('init-name').value = idea ? idea.title : '';
   document.getElementById('init-offer').value = idea ? idea.offer : '';
   document.getElementById('init-date').value = '';
+  document.getElementById('init-contact-limit').value = '';
   selectType(idea ? idea.type : 'new');
   openModal('modal-new-init');
 }
@@ -783,7 +785,8 @@ function openNewInitModal(idea) {
 function createInit() {
   const name=document.getElementById('init-name').value.trim();
   if(!name){ toast('Enter an initiative name'); return; }
-  const init={ id:uid(), name, type:selectedType, offer:document.getElementById('init-offer').value.trim(), targetDate:document.getElementById('init-date').value, createdAt:new Date().toISOString(), status:'active', contacts:[], companies:[], tasks:[], docs:[] };
+  const limitVal=parseInt(document.getElementById('init-contact-limit').value)||30;
+  const init={ id:uid(), name, type:selectedType, offer:document.getElementById('init-offer').value.trim(), targetDate:document.getElementById('init-date').value, contactLimit:limitVal, createdAt:new Date().toISOString(), status:'active', contacts:[], companies:[], tasks:[], docs:[] };
   store.initiatives.unshift(init);
   saveStore();
   closeModal('modal-new-init');
@@ -817,7 +820,7 @@ function getOrCreateContact(data) {
   });
   if(existId) return existId;
   const id=uid();
-  store.contacts[id]={ id, name:data.name||data.email||'Unknown', company:data.company||'', email:data.email||'', role:data.role||'', source:data.source||'manual', clickupId:data.clickupId||null, hsId:data.hsId||null, initiatives:{} };
+  store.contacts[id]={ id, name:data.name||data.email||'Unknown', company:data.company||'', email:data.email||'', role:data.role||'', linkedinUrl:data.linkedinUrl||'', source:data.source||'manual', clickupId:data.clickupId||null, hsId:data.hsId||null, initiatives:{} };
   return id;
 }
 
@@ -861,7 +864,7 @@ function recordStatusHistory(ci, status, date){
 // ─── Contacts added to initiatives ───────────────────────────────────────────
 function addToInit(initId, data) {
   const init=store.initiatives.find(i=>i.id===initId); if(!init) return false;
-  if(init.contacts.length>=30){ toast('Max 30 contacts per initiative.'); return false; }
+  const _limit=init.contactLimit||30; if(init.contacts.length>=_limit){ toast(`Max ${_limit} contacts per initiative.`); return false; }
   const cid=getOrCreateContact(data);
   if(init.contacts.includes(cid)){ toast(`${store.contacts[cid].name} already in this initiative.`); return false; }
   const isExisting=Object.values(store.initiatives).some(i=>i.id!==initId&&(i.contacts||[]).includes(cid));
@@ -1024,7 +1027,7 @@ function openContactsModal(id){
     badge: c.rosterStatus || ''
   }));
 
-  document.getElementById('contact-count-lbl').textContent=init?`${init.contacts.length}/30 contacts added`:'';
+  document.getElementById('contact-count-lbl').textContent=init?`${init.contacts.length}/${init.contactLimit||30} contacts added`:'';
 
   if (allSuggestions.length > 0) {
     document.getElementById('contact-load-status').innerHTML=`<div class="alert alert-success">${allSuggestions.length} roster contacts ready — search to filter, or load more from HubSpot</div>`;
@@ -1178,7 +1181,7 @@ function renderSuggestions(suggestions,query){
 
 function addFromSug(s){
   const init=store.initiatives.find(i=>i.id===currentInitId); if(!init) return;
-  if(init.contacts.length>=30){ toast('Max 30 contacts per initiative.'); return; }
+  const _lim2=init.contactLimit||30; if(init.contacts.length>=_lim2){ toast(`Max ${_lim2} contacts per initiative.`); return; }
 
   // If the suggestion is already a stored contact (from roster import), link directly
   let cid = store.contacts[s.id] ? s.id : null;
@@ -1194,9 +1197,9 @@ function addFromSug(s){
   renderInitDetail(currentInitId);
   renderSuggestions(allSuggestions,document.getElementById('contact-search').value);
   const lbl=document.getElementById('contact-count-lbl');
-  if(lbl) lbl.textContent=`${init.contacts.length}/30 contacts added`;
+  if(lbl) lbl.textContent=`${init.contacts.length}/${init.contactLimit||30} contacts added`;
   toast(`✓ ${s.name} added`);
-  if(init.contacts.length>=30) toast('You\'ve hit the recommended 30 contacts!');
+  if(init.contacts.length>=(init.contactLimit||30)) toast(`You've hit the limit of ${init.contactLimit||30} contacts!`);
 }
 
 let manualAddContext = null; // 'initiative' | 'people'
@@ -1246,7 +1249,7 @@ function submitManual(){
     store.contacts[id]={id,name:name||email,company:comp,email,role:document.getElementById('m-role').value.trim(),linkedinUrl:li,phone:'',companyId:coId,source:'manual',clickupId:null,hsId:null,rosterStatus:'',initiatives:{}};
     saveStore(); closeModal('modal-manual'); filterPeople(''); toast(`✓ ${name||email} added to contacts`);
   } else {
-    const added=addToInit(currentInitId,{name:name||email,company:document.getElementById('m-company').value.trim(),email,role:document.getElementById('m-role').value.trim(),source:'manual'});
+    const added=addToInit(currentInitId,{name:name||email,company:document.getElementById('m-company').value.trim(),email,role:document.getElementById('m-role').value.trim(),linkedinUrl:document.getElementById('m-linkedin').value.trim(),source:'manual'});
     if(added){ closeModal('modal-manual'); renderInitDetail(currentInitId); toast(`✓ ${name||email} added`); }
   }
 }
