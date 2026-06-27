@@ -1203,6 +1203,7 @@ function addFromSug(s){
 }
 
 let manualAddContext = null; // 'initiative' | 'people'
+function openManualAddFromCompany(coId){ document.getElementById('co-detail-overlay')?.remove(); const co=store.companies[coId]; openManualAdd(co?.name||''); }
 function openManualAdd(prefillCompany){ manualAddContext='initiative'; ['m-name','m-company','m-email','m-role','m-linkedin'].forEach(id=>document.getElementById(id).value=''); document.getElementById('linkedin-status').textContent=''; if(prefillCompany) document.getElementById('m-company').value=prefillCompany; document.getElementById('modal-manual').classList.add('open'); }
 function openManualAddGlobal(){ manualAddContext='people'; ['m-name','m-company','m-email','m-role','m-linkedin'].forEach(id=>document.getElementById(id).value=''); document.getElementById('linkedin-status').textContent=''; document.getElementById('modal-manual').classList.add('open'); }
 function onLinkedInInput(val){
@@ -2465,7 +2466,7 @@ function openCompanyDetail(coId, initId){
           </div>`:`<div style="font-size:13px;color:#9ca3af;font-style:italic">No contacts linked yet. Upload a spreadsheet with contact rows or add manually.</div>`}
         </div>
         <div class="modal-footer">
-          <button class="btn btn-secondary" onclick="document.getElementById('co-detail-overlay')?.remove();openManualAdd(${JSON.stringify(co.name||'')})">+ Add Contact</button>
+          <button class="btn btn-secondary" onclick="openManualAddFromCompany('${coId}')">+ Add Contact</button>
           <button class="btn btn-outline" onclick="openAddAssetModal('company','${coId}');document.getElementById('co-detail-overlay').remove()">+ Add Attachment</button>
           <button class="btn btn-primary" onclick="document.getElementById('co-detail-overlay')?.remove()">Done</button>
         </div>
