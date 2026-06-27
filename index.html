@@ -207,7 +207,16 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   <button class="nav-btn" onclick="showView('people')">People</button>
   <button class="nav-btn" onclick="showView('analytics')">Analytics</button>
   <div class="nav-spacer"></div>
-  <span id="save-indicator" style="font-size:11px;color:#6b7280;margin-left:auto;padding:0 12px;align-self:center"></span>
+  <div style="display:flex;align-items:center;gap:8px;padding:0 8px">
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px">
+      <span id="hs-sync-status" style="font-size:11px;color:rgba(255,255,255,.7)"></span>
+      <span id="hs-last-sync" style="font-size:10px;color:rgba(255,255,255,.4)"></span>
+    </div>
+    <button id="hs-sync-btn" onclick="syncHubSpot(false)" style="padding:5px 11px;border-radius:6px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.1);color:rgba(255,255,255,.85);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px">
+      <span id="hs-sync-icon">🔄</span> HubSpot
+    </button>
+  </div>
+  <span id="save-indicator" style="font-size:11px;color:rgba(255,255,255,.6);padding:0 8px;align-self:center"></span>
   <button class="nav-new" onclick="openNewInitModal()">+ New Initiative</button>
 </div>
 
@@ -601,6 +610,13 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
+// ─── Cowork polyfill (HubSpot/Gmail/ClickUp only work inside Cowork desktop) ─
+if(!window.cowork){
+  window.cowork={
+    callMcpTool:async()=>({content:[{text:'[]'}],structuredContent:null,isError:false}),
+    askClaude:async()=>''
+  };
+}
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
@@ -2679,7 +2695,7 @@ function saveAsset(){
 // ═══════════════════════════════════════════
 // SUPABASE CONFIG — fill these in
 // ═══════════════════════════════════════════
-const SUPABASE_URL = 'https://njsnanrstvuogurwptuc.supabase.co/rest/v1/';
+const SUPABASE_URL = 'https://njsnanrstvuogurwptuc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qc25hbnJzdHZ1b2d1cndwdHVjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1ODc2MzksImV4cCI6MjA5ODE2MzYzOX0.zFUTcRp4kcw0AbhTFqxKrdwEU_nukfHRR0znbalJNrE';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -2690,6 +2706,108 @@ function mergeDefaults(loaded){
     contacts: loaded.contacts||def.contacts,
     companies: loaded.companies||def.companies,
   };
+}
+
+// ═══════════════════════════════════════════
+// HUBSPOT SYNC
+// ═══════════════════════════════════════════
+let _hsSyncing=false;
+async function syncHubSpot(silent=false){
+  if(_hsSyncing){ if(!silent) toast('Sync already in progress…'); return; }
+  _hsSyncing=true;
+  const btn=document.getElementById('hs-sync-btn');
+  const icon=document.getElementById('hs-sync-icon');
+  if(btn) btn.disabled=true;
+  if(icon) icon.textContent='⏳';
+  const statusEl=document.getElementById('hs-sync-status');
+  if(statusEl) statusEl.textContent='Syncing…';
+
+  let added=0, updated=0, cursor=null, page=0;
+  const MAX_PAGES=15;
+
+  try{
+    while(page<MAX_PAGES){
+      let results=[], nextCursor=null;
+
+      // Try Vercel API proxy first (works on Vercel), fall back to Cowork MCP
+      let usedProxy=false;
+      try{
+        const url='/api/hubspot'+(cursor?'?after='+encodeURIComponent(cursor):'');
+        const r=await fetch(url,{signal:AbortSignal.timeout(8000)});
+        if(!r.ok) throw new Error('proxy '+r.status);
+        const d=await r.json();
+        results=d.results||[];
+        nextCursor=d.paging?.next?.after||null;
+        usedProxy=true;
+      }catch(proxyErr){
+        // Fall back to Cowork MCP
+        try{
+          const params={objectType:'contacts',properties:['firstname','lastname','email','company','jobtitle','lifecyclestage','phone'],limit:200,chatInsights:{userIntent:'Auto HubSpot sync',satisfaction:'NEUTRAL'}};
+          if(cursor) params.after=cursor;
+          const r=await window.cowork.callMcpTool('mcp__e2dc3749-b175-47f5-80b3-085d3f8ebed4__search_crm_objects',params);
+          const raw=r?.content?.[0]?.text||r?.structuredContent;
+          const d=typeof raw==='string'?JSON.parse(raw):raw;
+          results=d?.results||[];
+          nextCursor=d?.paging?.next?.after||null;
+        }catch(mcpErr){
+          throw new Error('Could not reach HubSpot via proxy or Cowork. Add HUBSPOT_ACCESS_TOKEN to Vercel env vars to sync from the web.');
+        }
+      }
+
+      for(const contact of results){
+        const p=contact.properties||{};
+        const name=[(p.firstname||''),(p.lastname||'')].join(' ').trim()||p.email||'Unknown';
+        const email=p.email||'';
+        const company=p.company||'';
+        const role=p.jobtitle||'';
+        const hsId=String(contact.id);
+        const existing=Object.values(store.contacts).find(c=>c.hsId===hsId);
+        if(existing){
+          if(name&&name!=='Unknown'&&!existing.name) existing.name=name;
+          if(company&&!existing.company) existing.company=company;
+          if(role&&!existing.role) existing.role=role;
+          if(email&&!existing.email) existing.email=email;
+          updated++;
+        } else {
+          getOrCreateContact({name,email,company,role,source:'hubspot',hsId});
+          added++;
+        }
+      }
+
+      cursor=nextCursor; page++;
+      if(!cursor) break;
+    }
+
+    store.lastHubSpotSync=new Date().toISOString();
+    saveStore();
+    if(!silent) toast(`✓ HubSpot: ${added} new contacts, ${updated} updated`);
+    _updateHsSyncDisplay();
+  }catch(e){
+    if(!silent) toast('⚠️ '+e.message);
+    console.error('HubSpot sync error:',e);
+    if(statusEl) statusEl.textContent='⚠️ Sync failed';
+    setTimeout(()=>{ if(statusEl) statusEl.textContent=''; },4000);
+  }finally{
+    _hsSyncing=false;
+    if(btn) btn.disabled=false;
+    if(icon) icon.textContent='🔄';
+    if(statusEl&&statusEl.textContent==='Syncing…') statusEl.textContent='';
+  }
+}
+
+function _updateHsSyncDisplay(){
+  const el=document.getElementById('hs-last-sync');
+  const statusEl=document.getElementById('hs-sync-status');
+  if(!el) return;
+  if(store.lastHubSpotSync){
+    const d=new Date(store.lastHubSpotSync);
+    const diffMin=Math.round((Date.now()-d)/60000);
+    const label=diffMin<2?'just now':diffMin<60?diffMin+'m ago':Math.round(diffMin/60)+'h ago';
+    el.textContent='Synced '+label;
+    if(statusEl) statusEl.textContent='';
+  } else {
+    el.textContent='Never synced';
+  }
 }
 
 async function initApp(){
@@ -2712,6 +2830,16 @@ async function initApp(){
   buildCompanyIndex();
   document.getElementById('db-loading-overlay')?.remove();
   renderDashboard();
+  _updateHsSyncDisplay();
+  // Update "synced X ago" display every minute
+  setInterval(_updateHsSyncDisplay, 60000);
+  // Auto-sync HubSpot every hour (silently)
+  setInterval(()=>syncHubSpot(true), 60*60*1000);
+  // Sync on load if last sync was >1 hour ago or never
+  const lastSync=store.lastHubSpotSync?new Date(store.lastHubSpotSync):null;
+  if(!lastSync||(Date.now()-lastSync)>60*60*1000){
+    setTimeout(()=>syncHubSpot(true), 3000); // 3s delay so UI is ready
+  }
 }
 
 // ═══════════════════════════════════════════
