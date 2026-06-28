@@ -573,6 +573,19 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
         <label>Assigned To</label>
         <input type="text" id="notes-assignee" placeholder="Who on the team owns this contact?">
       </div>
+      <div class="grid-2" style="gap:12px;margin-top:12px">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Email</label>
+          <input type="email" id="notes-contact-email" placeholder="their@email.com">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>LinkedIn URL</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="url" id="notes-contact-linkedin" placeholder="linkedin.com/in/…" style="flex:1">
+            <span id="notes-linkedin-link" style="display:none"><a id="notes-linkedin-anchor" href="#" target="_blank" style="font-size:18px;text-decoration:none">🔗</a></span>
+          </div>
+        </div>
+      </div>
       <div class="form-group" style="margin-top:12px">
         <label>LinkedIn Connection</label>
         <select id="notes-linkedin-status" style="width:auto;min-width:180px">
@@ -1137,21 +1150,12 @@ function onEmailChannelToggle(checkbox){
   if(!checkbox.checked) return;
   if(!notesTarget) return;
   const c=store.contacts[notesTarget.cid];
-  if(c&&c.email) return; // already has email, nothing to do
-  const email=prompt('No email on file for this contact. Enter their email address:');
-  if(email&&email.includes('@')){
-    c.email=email.trim();
-    // Update subtitle in modal
-    const sub=document.getElementById('notes-sub');
-    if(sub) sub.textContent=[c.company,c.role,c.email].filter(Boolean).join(' · ');
-    saveStore();
-    toast('✓ Email saved to contact');
-    // Reload email history now that we have an address
-    const emailEl=document.getElementById('notes-emails-list');
-    if(emailEl){ emailEl.innerHTML='<span class="spinner"></span> Loading…'; loadRecentEmails(c.email, emailEl, c.hsId||null); }
-  } else if(email!==null){
-    toast('Invalid email — checkbox kept checked but email not saved');
-  }
+  // If the email field in the modal is already filled, nothing to do
+  const emailField=document.getElementById('notes-contact-email');
+  if(c&&c.email) return;
+  if(emailField&&emailField.value.trim()) return;
+  // Focus the email field so they can fill it in
+  if(emailField){ emailField.focus(); toast('Enter their email address in the Email field above'); }
 }
 function openNotesModal(initId,cid){
   notesTarget={initId,cid};
@@ -1164,6 +1168,14 @@ function openNotesModal(initId,cid){
   document.getElementById('notes-followup').value=ci.nextFollowUp||'';
   document.getElementById('notes-assignee').value=ci.assignedTo||'';
   document.getElementById('notes-linkedin-status').value=ci.linkedinConnectionStatus||'';
+  // Contact-level fields
+  document.getElementById('notes-contact-email').value=c?c.email||'':'';
+  const liUrl=c?c.linkedinUrl||'':'';
+  document.getElementById('notes-contact-linkedin').value=liUrl;
+  const liLink=document.getElementById('notes-linkedin-link');
+  const liAnchor=document.getElementById('notes-linkedin-anchor');
+  if(liUrl){ liLink.style.display='inline'; liAnchor.href=liUrl.startsWith('http')?liUrl:'https://'+liUrl; }
+  else liLink.style.display='none';
   document.getElementById('notes-text').value=ci.notes||'';
   document.getElementById('notes-nextsteps').value=ci.nextSteps||'';
   // Other initiatives
@@ -1202,6 +1214,13 @@ function saveNotes(){
     c.initiatives[initId].assignedTo=document.getElementById('notes-assignee').value.trim();
     c.initiatives[initId].notes=document.getElementById('notes-text').value.trim();
     c.initiatives[initId].nextSteps=document.getElementById('notes-nextsteps').value.trim();
+    // Save contact-level fields
+    const newEmail=document.getElementById('notes-contact-email').value.trim();
+    if(newEmail) c.email=newEmail;
+    const newLi=document.getElementById('notes-contact-linkedin').value.trim();
+    if(newLi) c.linkedinUrl=newLi.startsWith('http')?newLi:'https://'+newLi;
+    // Auto-set LinkedIn status if URL was just added and no status yet
+    if(newLi && !c.initiatives[initId].linkedinConnectionStatus) c.initiatives[initId].linkedinConnectionStatus='tried';
     if(statusChanged) recordStatusHistory(c.initiatives[initId], newStatus, date);
     const liStatus=c.initiatives[initId].linkedinConnectionStatus;
     logChange('notes_saved','contact',notesTarget.cid,{initId,status:newStatus,prevStatus,channels:c.initiatives[initId].channels,linkedinStatus:liStatus,contactName:c.name});
@@ -1750,6 +1769,7 @@ function renderInitDetail(id){
 
 function switchTab(tab,id){
   currentDetailTab=tab;
+  currentKanbanSearch=''; currentListSearch='';
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent.toLowerCase().startsWith(tab)));
   renderDetailTab(id);
 }
@@ -1818,8 +1838,19 @@ function renderDetailTab(id){
           groupMap[coId]={coId,coName:co.name,contacts:[]};
         }
       });
-      const groups=Object.values(groupMap).sort((a,b)=>a.coName.localeCompare(b.coName));
-      if(!groups.length) return '<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:24px">No contacts yet</td></tr>';
+      let groups=Object.values(groupMap).sort((a,b)=>a.coName.localeCompare(b.coName));
+      // Apply search filter to company groups
+      if(currentListSearch){
+        const q=currentListSearch.toLowerCase();
+        groups=groups.map(g=>({
+          ...g,
+          contacts:g.contacts.filter(cid=>{
+            const c=store.contacts[cid]; if(!c) return false;
+            return c.name.toLowerCase().includes(q)||(c.company||'').toLowerCase().includes(q)||(c.email||'').toLowerCase().includes(q);
+          })
+        })).filter(g=>g.coName.toLowerCase().includes(q)||g.contacts.length>0);
+      }
+      if(!groups.length) return '<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:24px">No results match your search</td></tr>';
       return groups.map(g=>{
         const co=store.companies[g.coId];
         const coHeader=`<tr style="background:#f9fafb">
@@ -1846,10 +1877,14 @@ function renderDetailTab(id){
     // Filter + sort contacts for list view
     const SRANK={to_contact:1,contacted:2,followed_up:3,responded:4,meeting_scheduled:5,meeting_completed:6,project_estimated:7,closed:8};
     let listCids=init.contacts.filter(cid=>{
-      if(currentListStatusFilter==='all') return true;
       const c=store.contacts[cid]; if(!c) return false;
       const ci=(c.initiatives&&c.initiatives[id])||{status:'to_contact'};
-      return ci.status===currentListStatusFilter;
+      if(currentListStatusFilter!=='all'&&ci.status!==currentListStatusFilter) return false;
+      if(currentListSearch){
+        const q=currentListSearch.toLowerCase();
+        if(!c.name.toLowerCase().includes(q)&&!(c.company||'').toLowerCase().includes(q)&&!(c.email||'').toLowerCase().includes(q)) return false;
+      }
+      return true;
     });
     if(currentListSort==='name') listCids=[...listCids].sort((a,b)=>(store.contacts[a]?.name||'').localeCompare(store.contacts[b]?.name||''));
     else if(currentListSort==='status') listCids=[...listCids].sort((a,b)=>{
@@ -1864,6 +1899,12 @@ function renderDetailTab(id){
     });
 
     const filterBar=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div style="position:relative">
+        <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:12px;pointer-events:none">🔍</span>
+        <input type="search" placeholder="Search…" value="${esc(currentListSearch)}"
+          oninput="currentListSearch=this.value;renderDetailTab('${id}')"
+          style="padding:4px 10px 4px 26px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;width:160px;outline:none">
+      </div>
       <select onchange="currentListStatusFilter=this.value;renderDetailTab('${id}')" style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid #d1d5db;background:#fff;color:#374151">
         <option value="all"${currentListStatusFilter==='all'?' selected':''}>All Statuses</option>
         ${STATUS_ORDER.map(s=>`<option value="${s}"${currentListStatusFilter===s?' selected':''}>${STATUS_LABELS[s]}</option>`).join('')}
@@ -1874,7 +1915,7 @@ function renderDetailTab(id){
         <option value="status"${currentListSort==='status'?' selected':''}>Sort: Status</option>
         <option value="followup"${currentListSort==='followup'?' selected':''}>Sort: Follow-up Date</option>
       </select>
-      ${currentListStatusFilter!=='all'?`<span class="tag" style="background:#ede9fe;color:#5b21b6;font-size:11px">${listCids.length} shown</span>`:''}
+      ${(currentListStatusFilter!=='all'||currentListSearch)?`<span class="tag" style="background:#ede9fe;color:#5b21b6;font-size:11px">${listCids.length} shown</span>`:''}
     </div>`;
 
     const tableBody=currentListMode==='company'?buildByCompanyRows():listCids.map(buildContactRow).join('');
@@ -1885,12 +1926,12 @@ function renderDetailTab(id){
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <div style="font-size:13px;color:#6b7280">${cnt} contacts</div>
           ${listModeToggle}
-          ${currentListMode==='contact'?filterBar:''}
+          ${filterBar}
         </div>
-        <div class="flex gap-8">
-          <button class="btn btn-sm btn-outline" onclick="openInitCSVUpload('${id}')">📊 Upload Spreadsheet</button>
-          <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none" onclick="clearInitContacts('${init.id}')">🗑 Clear Contacts</button>
-          <button class="btn btn-sm btn-primary" onclick="openContactsModal('${id}')">+ Add Contacts</button>
+        <div class="flex gap-8" style="flex-shrink:0">
+          <button class="btn btn-sm btn-outline" onclick="openInitCSVUpload('${id}')">📊 Upload</button>
+          <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none" onclick="clearInitContacts('${init.id}')">🗑 Clear</button>
+          <button class="btn btn-sm btn-primary" onclick="openContactsModal('${id}')">+ Add Contact</button>
         </div>
       </div>
       ${cnt===0&&!(init.companies&&init.companies.length)?`
@@ -2453,6 +2494,8 @@ function kanbanDrop(e, status, initId){
 let currentKanbanMode = 'company'; // 'contact' | 'company'
 let currentListStatusFilter = 'all';
 let currentListSort = 'default'; // 'default' | 'name' | 'status' | 'followup'
+let currentKanbanSearch = '';
+let currentListSearch = '';
 const RANK = {closed:8,project_estimated:7,meeting_completed:6,meeting_scheduled:5,responded:4,followed_up:3,contacted:2,to_contact:1};
 
 function kanbanToggleHTML(mode, onchangeFn){
@@ -2582,13 +2625,20 @@ function renderInitKanban(id, mode){
   });
   const assignees=[...assigneeSet].sort();
 
-  // Filter cards by assignee
+  // Filter cards by assignee + search
   let filteredContacts=init.contacts;
   if(currentKanbanAssignee!=='all'){
-    filteredContacts=init.contacts.filter(cid=>{
+    filteredContacts=filteredContacts.filter(cid=>{
       const c=store.contacts[cid]; if(!c) return false;
       const ci=c.initiatives&&c.initiatives[id];
       return ci&&ci.assignedTo===currentKanbanAssignee;
+    });
+  }
+  if(currentKanbanSearch){
+    const q=currentKanbanSearch.toLowerCase();
+    filteredContacts=filteredContacts.filter(cid=>{
+      const c=store.contacts[cid]; if(!c) return false;
+      return c.name.toLowerCase().includes(q)||(c.company||'').toLowerCase().includes(q)||(c.email||'').toLowerCase().includes(q);
     });
   }
   const allCards=filteredContacts.map(cid=>({cid,initId:id}));
@@ -2608,12 +2658,19 @@ function renderInitKanban(id, mode){
     </div>`:'';
 
   el.innerHTML=`
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-      <div style="display:inline-flex;border:1px solid #e5e7eb;border-radius:7px;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <div style="display:inline-flex;border:1px solid #e5e7eb;border-radius:7px;overflow:hidden;flex-shrink:0">
         <button onclick="setInitKanbanMode('contact')" style="padding:5px 12px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:${mode==='contact'?'#4f46e5':'#fff'};color:${mode==='contact'?'#fff':'#6b7280'}">👤 By Contact</button>
         <button onclick="setInitKanbanMode('company')" style="padding:5px 12px;font-size:12px;font-weight:600;border:none;cursor:pointer;background:${mode==='company'?'#4f46e5':'#fff'};color:${mode==='company'?'#fff':'#6b7280'}">🏢 By Company</button>
       </div>
+      <div style="position:relative;flex:1;min-width:160px;max-width:260px">
+        <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:13px;pointer-events:none">🔍</span>
+        <input type="search" placeholder="Search contacts or companies…" value="${esc(currentKanbanSearch)}"
+          oninput="currentKanbanSearch=this.value;renderInitKanban('${id}',currentKanbanMode)"
+          style="width:100%;padding:5px 10px 5px 28px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;outline:none">
+      </div>
       ${assigneeFilterHTML}
+      <button class="btn btn-sm btn-primary" style="margin-left:auto;flex-shrink:0" onclick="openContactsModal('${id}')">+ Add Contact</button>
     </div>
     <div style="overflow-x:auto;padding:4px 0"><div class="kanban-board">${cols}</div></div>`;
 }
@@ -3315,6 +3372,18 @@ async function initApp(){
   }
   buildCompanyIndex();
   store.auditLog=store.auditLog||[];
+  // One-time backfill: for contacts in the "Pods" initiative that have a LinkedIn URL
+  // but no linkedinConnectionStatus → set 'tried'
+  const _podsInit=store.initiatives.find(i=>i.name&&i.name.toLowerCase().includes('pods'));
+  if(_podsInit){
+    let _backfilled=0;
+    (_podsInit.contacts||[]).forEach(cid=>{
+      const c=store.contacts[cid]; if(!c||!c.linkedinUrl) return;
+      const ci=c.initiatives&&c.initiatives[_podsInit.id];
+      if(ci&&!ci.linkedinConnectionStatus){ ci.linkedinConnectionStatus='tried'; _backfilled++; }
+    });
+    if(_backfilled>0){ saveStore(); console.log(`Pods LinkedIn backfill: ${_backfilled} contacts updated`); }
+  }
   document.getElementById('db-loading-overlay')?.remove();
   // Route based on hash, or default to dashboard
   if(window.location.hash && window.location.hash.length>1) handleRoute();
