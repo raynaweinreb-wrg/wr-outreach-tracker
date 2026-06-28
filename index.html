@@ -514,7 +514,10 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
         <div class="modal-title" id="notes-title">Contact Details</div>
         <div class="text-sm text-muted mt-4" id="notes-sub"></div>
       </div>
-      <button class="modal-close" onclick="closeModal('modal-notes')">×</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn btn-sm btn-outline" onclick="if(notesTarget){closeModal('modal-notes');openEditContact(notesTarget.cid);}">✏️ Edit Contact</button>
+        <button class="modal-close" onclick="closeModal('modal-notes')">×</button>
+      </div>
     </div>
     <div class="modal-body">
       <div class="grid-2" style="gap:12px">
