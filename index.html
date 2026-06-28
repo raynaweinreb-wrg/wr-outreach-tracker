@@ -62,7 +62,7 @@ tr:last-child td { border-bottom: none; }
 tr:hover td { background: #fafafa; }
 
 /* ── Forms ── */
-.form-group { margin-bottom: 14px; }
+.form-group { margin-bottom: 18px; }
 label { display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 5px; }
 input, select, textarea { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 13px; color: #1a1a1a; background: #fff; outline: none; font-family: inherit; }
 input:focus, select:focus, textarea:focus { border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124,58,237,.08); }
@@ -88,11 +88,11 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
 .modal-overlay.open { display: flex; }
 .modal { background: #fff; border-radius: 16px; width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; box-shadow: 0 25px 70px rgba(0,0,0,.2); }
-.modal-header { padding: 22px 24px 0; display: flex; justify-content: space-between; align-items: flex-start; }
+.modal-header { padding: 24px 28px 0; display: flex; justify-content: space-between; align-items: flex-start; }
 .modal-title { font-size: 17px; font-weight: 800; color: #1a1a2e; }
 .modal-close { background: #f3f4f6; border: none; width: 28px; height: 28px; border-radius: 50%; font-size: 16px; cursor: pointer; color: #6b7280; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .modal-close:hover { background: #e5e7eb; }
-.modal-body { padding: 20px 24px 24px; }
+.modal-body { padding: 20px 28px 28px; }
 .modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 
 /* ── Tabs ── */
@@ -336,7 +336,10 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 <div class="view" id="view-companies">
   <div class="section-header">
     <div><div class="section-title">Companies</div><div class="section-sub">All companies in the system</div></div>
-    <input type="search" id="co-search" placeholder="Search companies…" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;width:240px" oninput="renderCompaniesView()">
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="search" id="co-search" placeholder="Search companies…" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;width:220px" oninput="renderCompaniesView()">
+      <button class="btn btn-sm btn-outline" onclick="const n=mergeDuplicateCompanies();saveStore();renderCompaniesView();toast(n?'✓ Merged '+n+' duplicate company record'+(n>1?'s':''):'No duplicates found')">🔀 Merge Duplicates</button>
+    </div>
   </div>
   <div id="companies-list"></div>
 </div>
@@ -452,7 +455,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 <div class="modal-overlay" id="modal-manual">
   <div class="modal" style="max-width:440px">
     <div class="modal-header">
-      <div class="modal-title">Add Contact</div>
+      <div class="modal-title" id="modal-manual-title">Add Contact</div>
       <button class="modal-close" onclick="closeModal('modal-manual')">×</button>
     </div>
     <div class="modal-body">
@@ -471,7 +474,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
       <div class="form-group"><label>Role / Title</label><input type="text" id="m-role" placeholder="e.g. VP of Marketing"></div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeModal('modal-manual')">Cancel</button>
-        <button class="btn btn-primary" onclick="submitManual()">Add Contact</button>
+        <button class="btn btn-primary" id="modal-manual-submit-btn" onclick="submitManual()">Add Contact</button>
       </div>
     </div>
   </div>
@@ -531,7 +534,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
         <div class="form-group" style="margin-bottom:0">
           <label>Channels Used</label>
           <div id="notes-channels" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">
-  <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="checkbox" value="Email" style="width:14px;height:14px"> Email</label>
+  <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="checkbox" value="Email" style="width:14px;height:14px" onchange="onEmailChannelToggle(this)"> Email</label>
   <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="checkbox" value="LinkedIn" style="width:14px;height:14px"> LinkedIn</label>
   <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="checkbox" value="Phone" style="width:14px;height:14px"> Phone</label>
   <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="checkbox" value="In-person" style="width:14px;height:14px"> In-person</label>
@@ -556,6 +559,14 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
         <label>Assigned To</label>
         <input type="text" id="notes-assignee" placeholder="Who on the team owns this contact?">
       </div>
+      <div class="form-group" style="margin-top:12px">
+        <label>LinkedIn Connection</label>
+        <select id="notes-linkedin-status" style="width:auto;min-width:180px">
+          <option value="">— No action —</option>
+          <option value="tried">🔗 Tried to Connect</option>
+          <option value="connected">✅ Connected</option>
+        </select>
+      </div>
       <div class="form-group">
         <label>What Happened / What Was Sent</label>
         <textarea id="notes-text" placeholder="Summarize the outreach — what was said, what was sent, how they responded…" style="min-height:90px"></textarea>
@@ -569,7 +580,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
         <div id="other-inits-list" style="font-size:13px;color:#6b7280;line-height:1.8"></div>
       </div>
       <div class="form-group" id="notes-emails-section">
-        <label>Recent Conversations</label>
+        <label>Recent Emails <span style="font-size:11px;font-weight:400;color:#9ca3af">(from HubSpot)</span></label>
         <div id="notes-emails-list" style="font-size:13px;color:#6b7280"><span class="spinner"></span> Loading…</div>
       </div>
       <div class="form-group" style="margin-top:14px;border-top:1px solid #f3f4f6;padding-top:14px">
@@ -688,6 +699,7 @@ function updateSaveIndicator(state){
 }
 let store = defaultStore();
 
+let editingContactId = null;
 let currentFilter = 'all';
 let currentInitId = null;
 let currentDetailTab = 'contacts';
@@ -727,8 +739,45 @@ function matchOrCreateCompany(name, email, linkedinUrl, website, enrichment){
     ...(enrichment||{})};
   return id;
 }
-function linkContactToCompany(cid){ const c=store.contacts[cid]; if(!c||c.companyId) return; if(!c.company&&!c.email) return; c.companyId=matchOrCreateCompany(c.company||'',c.email||'',c.linkedinUrl||',',''); }
-function buildCompanyIndex(){ Object.keys(store.contacts).forEach(cid=>linkContactToCompany(cid)); }
+function linkContactToCompany(cid){ const c=store.contacts[cid]; if(!c||c.companyId) return; if(!c.company&&!c.email) return; c.companyId=matchOrCreateCompany(c.company||'',c.email||'',c.linkedinUrl||'',''); }
+
+function mergeDuplicateCompanies(){
+  // Group company IDs by normalized name
+  const byName={};
+  Object.values(store.companies).forEach(co=>{
+    const key=(co.name||'').trim().toLowerCase();
+    if(!key||key==='unknown') return;
+    if(!byName[key]) byName[key]=[];
+    byName[key].push(co.id);
+  });
+  let merged=0;
+  Object.values(byName).forEach(ids=>{
+    if(ids.length<2) return;
+    // Keep the one with the most data (most non-empty fields)
+    const score=id=>{const co=store.companies[id]; return Object.values(co).filter(v=>v&&v!==''&&v!==id).length;};
+    ids.sort((a,b)=>score(b)-score(a));
+    const keepId=ids[0];
+    const keep=store.companies[keepId];
+    ids.slice(1).forEach(dupId=>{
+      const dup=store.companies[dupId];
+      // Merge any fields the keeper is missing
+      Object.keys(dup).forEach(k=>{ if(k!=='id'&&dup[k]&&!keep[k]) keep[k]=dup[k]; });
+      // Merge docs
+      if(dup.docs&&dup.docs.length) keep.docs=[...(keep.docs||[]),...dup.docs];
+      // Reassign all contacts pointing to the duplicate
+      Object.values(store.contacts).forEach(c=>{ if(c.companyId===dupId){ c.companyId=keepId; } });
+      // Delete the duplicate
+      delete store.companies[dupId];
+      merged++;
+    });
+  });
+  return merged;
+}
+
+function buildCompanyIndex(){
+  Object.keys(store.contacts).forEach(cid=>linkContactToCompany(cid));
+  mergeDuplicateCompanies(); // auto-clean duplicates on every load
+}
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function esc(s) { if (!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -873,6 +922,13 @@ function addToInit(initId, data) {
   saveStore(); return true;
 }
 
+function deleteContact(cid){
+  if(!confirm('Delete this contact permanently? This removes them from all initiatives.')) return;
+  const c=store.contacts[cid]; if(!c) return;
+  store.initiatives.forEach(init=>{ init.contacts=(init.contacts||[]).filter(x=>x!==cid); });
+  delete store.contacts[cid];
+  saveStore(); filterPeople(''); closeModal('modal-contact-detail'); toast('Contact deleted');
+}
 function removeFromInit(initId,cid) {
   const init=store.initiatives.find(i=>i.id===initId); if(!init) return;
   init.contacts=init.contacts.filter(c=>c!==cid);
@@ -924,6 +980,26 @@ function setCheckedChannels(channels){
   const arr=Array.isArray(channels)?channels:(channels?[channels]:[]);
   document.querySelectorAll('#notes-channels input[type=checkbox]').forEach(el=>{ el.checked=arr.includes(el.value); });
 }
+function onEmailChannelToggle(checkbox){
+  if(!checkbox.checked) return;
+  if(!notesTarget) return;
+  const c=store.contacts[notesTarget.cid];
+  if(c&&c.email) return; // already has email, nothing to do
+  const email=prompt('No email on file for this contact. Enter their email address:');
+  if(email&&email.includes('@')){
+    c.email=email.trim();
+    // Update subtitle in modal
+    const sub=document.getElementById('notes-sub');
+    if(sub) sub.textContent=[c.company,c.role,c.email].filter(Boolean).join(' · ');
+    saveStore();
+    toast('✓ Email saved to contact');
+    // Reload email history now that we have an address
+    const emailEl=document.getElementById('notes-emails-list');
+    if(emailEl){ emailEl.innerHTML='<span class="spinner"></span> Loading…'; loadRecentEmails(c.email, emailEl, c.hsId||null); }
+  } else if(email!==null){
+    toast('Invalid email — checkbox kept checked but email not saved');
+  }
+}
 function openNotesModal(initId,cid){
   notesTarget={initId,cid};
   const c=store.contacts[cid]; const ci=(c&&c.initiatives&&c.initiatives[initId])||{};
@@ -934,6 +1010,7 @@ function openNotesModal(initId,cid){
   document.getElementById('notes-date').value=ci.lastContact||'';
   document.getElementById('notes-followup').value=ci.nextFollowUp||'';
   document.getElementById('notes-assignee').value=ci.assignedTo||'';
+  document.getElementById('notes-linkedin-status').value=ci.linkedinConnectionStatus||'';
   document.getElementById('notes-text').value=ci.notes||'';
   document.getElementById('notes-nextsteps').value=ci.nextSteps||'';
   // Other initiatives
@@ -948,12 +1025,11 @@ function openNotesModal(initId,cid){
   } else sec.style.display='none';
   renderNotesDocsList(store.contacts[cid]);
   renderContactExtraFields(store.contacts[cid]);
-  // Load recent Gmail conversations
+  // Load recent HubSpot email conversations
   const emailEl=document.getElementById('notes-emails-list');
   emailEl.innerHTML='<span class="spinner"></span> Loading…';
   openModal('modal-notes');
-  if(c&&c.email) loadRecentEmails(c.email, emailEl);
-  else emailEl.innerHTML='<span class="text-muted">No email address on file.</span>';
+  loadRecentEmails(c?.email||'', emailEl, c?.hsId||null);
 }
 function saveNotes(){
   if(!notesTarget) return;
@@ -966,6 +1042,7 @@ function saveNotes(){
   function applyNotes(date){
     c.initiatives[initId].status=newStatus;
     c.initiatives[initId].channels=getCheckedChannels();
+    c.initiatives[initId].linkedinConnectionStatus=document.getElementById('notes-linkedin-status').value||'';
     if(date) c.initiatives[initId].lastContact=date;
     else c.initiatives[initId].lastContact=document.getElementById('notes-date').value;
     c.initiatives[initId].nextFollowUp=document.getElementById('notes-followup').value;
@@ -983,26 +1060,39 @@ function saveNotes(){
     applyNotes(null);
   }
 }
-async function loadRecentEmails(email, el){
+async function loadRecentEmails(email, el, hsId){
   try {
-    const result=await window.cowork.callMcpTool(
-      'mcp__580c0f67-25e5-4c50-b74d-a66b7a86ea75__search_threads',
-      { query: email, maxResults: 5 }
-    );
-    let threads=[];
-    try { const d=result.structuredContent||JSON.parse(result.content[0].text); threads=d.threads||d||[]; } catch(e){}
-    if(!threads.length){ el.innerHTML='<span class="text-muted">No conversations found.</span>'; return; }
-    el.innerHTML=threads.slice(0,5).map(t=>{
-      const subj=t.snippet||t.subject||t.id||'(no subject)';
-      const date=t.internalDate?new Date(parseInt(t.internalDate)).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
-      return `<div style="border-bottom:1px solid #f3f4f6;padding:8px 0;line-height:1.4">
-        <div style="font-weight:500;font-size:13px">${esc(t.subject||t.snippet||'Thread')}</div>
-        ${date?`<div class="text-muted text-sm">${date}</div>`:''}
-        <div class="text-muted text-sm" style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(subj)}</div>
+    // Build query params — prefer hsId for direct lookup, fall back to email search
+    const params = new URLSearchParams({ action: 'emails' });
+    if (hsId) params.set('hsId', hsId);
+    else if (email) params.set('email', email);
+    else { el.innerHTML='<span class="text-muted">No email address on file.</span>'; return; }
+
+    const res = await fetch(`/api/hubspot?${params}`);
+    if (!res.ok) throw new Error('API error');
+    const data = await res.json();
+    const emails = data.emails || [];
+
+    if (!emails.length) { el.innerHTML='<span class="text-muted">No emails logged in HubSpot yet.</span>'; return; }
+
+    el.innerHTML = emails.slice(0, 10).map(e => {
+      const date = e.timestamp ? new Date(e.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+      const isInbound = (e.direction||'').includes('INCOMING');
+      const dirLabel = isInbound
+        ? `<span style="font-size:10px;background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:10px;font-weight:600">↓ Received</span>`
+        : `<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:10px;font-weight:600">↑ Sent</span>`;
+      return `<div style="border-bottom:1px solid #f3f4f6;padding:9px 0;line-height:1.5">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+          ${dirLabel}
+          ${date ? `<span class="text-muted text-sm">${date}</span>` : ''}
+          ${e.from ? `<span class="text-muted text-sm">· from ${esc(e.from)}</span>` : ''}
+        </div>
+        <div style="font-weight:500;font-size:13px">${esc(e.subject)}</div>
+        ${e.snippet ? `<div class="text-muted text-sm" style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:400px">${esc(e.snippet)}</div>` : ''}
       </div>`;
     }).join('');
-  } catch(e){
-    el.innerHTML='<span class="text-muted">Could not load conversations.</span>';
+  } catch(e) {
+    el.innerHTML='<span class="text-muted">Could not load HubSpot emails. Check your token has <code>crm.objects.emails.read</code> scope.</span>';
   }
 }
 
@@ -1203,9 +1293,57 @@ function addFromSug(s){
 }
 
 let manualAddContext = null; // 'initiative' | 'people'
-function openManualAddFromCompany(coId){ document.getElementById('co-detail-overlay')?.remove(); const co=store.companies[coId]; openManualAdd(co?.name||''); }
-function openManualAdd(prefillCompany){ manualAddContext='initiative'; ['m-name','m-company','m-email','m-role','m-linkedin'].forEach(id=>document.getElementById(id).value=''); document.getElementById('linkedin-status').textContent=''; if(prefillCompany) document.getElementById('m-company').value=prefillCompany; document.getElementById('modal-manual').classList.add('open'); }
-function openManualAddGlobal(){ manualAddContext='people'; ['m-name','m-company','m-email','m-role','m-linkedin'].forEach(id=>document.getElementById(id).value=''); document.getElementById('linkedin-status').textContent=''; document.getElementById('modal-manual').classList.add('open'); }
+function openManualAddFromCompany(coId){
+  document.getElementById('co-detail-overlay')?.remove();
+  document.getElementById('co-add-contact-overlay')?.remove();
+  const co=store.companies[coId]; if(!co) return;
+  const existing=Object.values(store.contacts).filter(c=>c.companyId!==coId);
+  const html=`<div class="modal-overlay open" id="co-add-contact-overlay" onclick="if(event.target===this)this.remove()">
+    <div class="modal" style="max-width:460px">
+      <div class="modal-header"><div class="modal-title">Add Contact to ${esc(co.name)}</div><button class="modal-close" onclick="document.getElementById('co-add-contact-overlay').remove()">×</button></div>
+      <div class="modal-body">
+        ${existing.length?`<div style="margin-bottom:14px">
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Link an existing contact</label>
+          <input type="search" placeholder="Search contacts…" style="width:100%;padding:7px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;margin-bottom:8px" oninput="filterCoAddList('${coId}',this.value)">
+          <div id="co-add-contact-list" style="max-height:200px;overflow-y:auto;border:1px solid #f0f0f0;border-radius:8px">
+            ${existing.slice(0,30).map(c=>`<div style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f9fafb;font-size:13px" onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background=''" onclick="linkExistingContactToCompany('${coId}','${c.id}')"><strong>${esc(c.name)}</strong>${c.role?' <span style=color:#6b7280>· '+esc(c.role)+'</span>':''}${c.email?'<div style=font-size:11px;color:#7c3aed>'+esc(c.email)+'</div>':''}</div>`).join('')}
+          </div>
+        </div><div style="text-align:center;font-size:12px;color:#9ca3af;margin:10px 0">— or —</div>`:''}
+        <button class="btn btn-primary" style="width:100%" onclick="document.getElementById('co-add-contact-overlay').remove();openManualAdd(coAddPrefill)">+ Add New Contact</button>
+      </div>
+    </div>
+  </div>`;
+  window.coAddPrefill=co.name||'';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function filterCoAddList(coId,q){
+  const el=document.getElementById('co-add-contact-list'); if(!el) return;
+  const lq=q.toLowerCase();
+  const existing=Object.values(store.contacts).filter(c=>c.companyId!==coId&&(!lq||(c.name||'').toLowerCase().includes(lq)||(c.email||'').toLowerCase().includes(lq)||(c.role||'').toLowerCase().includes(lq)));
+  el.innerHTML=existing.slice(0,30).map(c=>`<div style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f9fafb;font-size:13px" onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background=''" onclick="linkExistingContactToCompany('${coId}','${c.id}')"><strong>${esc(c.name)}</strong>${c.role?' <span style=color:#6b7280>· '+esc(c.role)+'</span>':''}${c.email?'<div style=font-size:11px;color:#7c3aed>'+esc(c.email)+'</div>':''}</div>`).join('')||'<div style="padding:12px;color:#9ca3af;font-size:13px">No matches</div>';
+}
+function linkExistingContactToCompany(coId,cid){
+  const c=store.contacts[cid]; if(!c) return;
+  c.companyId=coId;
+  const co=store.companies[coId]; if(co&&!c.company) c.company=co.name;
+  saveStore(); document.getElementById('co-add-contact-overlay')?.remove();
+  toast('✓ '+c.name+' linked to '+(store.companies[coId]?.name||'company'));
+}
+function openEditContact(cid){
+  const c=store.contacts[cid]; if(!c) return;
+  editingContactId=cid; manualAddContext='edit';
+  document.getElementById('modal-manual-title').textContent='Edit Contact';
+  document.getElementById('modal-manual-submit-btn').textContent='Save Changes';
+  document.getElementById('m-linkedin').value=c.linkedinUrl||'';
+  document.getElementById('m-name').value=c.name||'';
+  document.getElementById('m-company').value=c.company||'';
+  document.getElementById('m-email').value=c.email||'';
+  document.getElementById('m-role').value=c.role||'';
+  document.getElementById('linkedin-status').textContent='';
+  document.getElementById('modal-manual').classList.add('open');
+}
+function openManualAdd(prefillCompany){ editingContactId=null; manualAddContext='initiative'; document.getElementById('modal-manual-title').textContent='Add Contact'; document.getElementById('modal-manual-submit-btn').textContent='Add Contact'; ['m-name','m-company','m-email','m-role','m-linkedin'].forEach(id=>document.getElementById(id).value=''); document.getElementById('linkedin-status').textContent=''; if(prefillCompany) document.getElementById('m-company').value=prefillCompany; document.getElementById('modal-manual').classList.add('open'); }
+function openManualAddGlobal(){ editingContactId=null; manualAddContext='people'; document.getElementById('modal-manual-title').textContent='Add Contact'; document.getElementById('modal-manual-submit-btn').textContent='Add Contact'; ['m-name','m-company','m-email','m-role','m-linkedin'].forEach(id=>document.getElementById(id).value=''); document.getElementById('linkedin-status').textContent=''; document.getElementById('modal-manual').classList.add('open'); }
 function onLinkedInInput(val){
   const btn=document.getElementById('linkedin-lookup-btn');
   btn.style.display=val.includes('linkedin.com')?'':'none';
@@ -1233,7 +1371,7 @@ async function lookupLinkedIn(){
     if(data.role) document.getElementById('m-role').value=data.role;
     statusEl.textContent=data.name?`✓ Found: ${data.name}${data.company?' @ '+data.company:''}`:'⚠️ Could not extract — fill in manually';
   } catch(e){
-    statusEl.textContent='⚠️ Could not load profile. Make sure you\'re logged in to LinkedIn in Chrome.';
+    statusEl.textContent='⚠️ Could not load profile. Try: open Chrome → log into linkedin.com → try again. Or fill in manually below.';
     console.error(e);
   }
   btn.textContent='🔍 Lookup'; btn.disabled=false;
@@ -1241,6 +1379,14 @@ async function lookupLinkedIn(){
 function submitManual(){
   const name=document.getElementById('m-name').value.trim(); const email=document.getElementById('m-email').value.trim();
   if(!name&&!email){ toast('Enter a name or email'); return; }
+  if(manualAddContext==='edit'&&editingContactId){
+    const c=store.contacts[editingContactId]; if(!c){ toast('Contact not found'); return; }
+    const comp=document.getElementById('m-company').value.trim();
+    const li=document.getElementById('m-linkedin').value.trim();
+    c.name=name||email; c.email=email; c.company=comp; c.role=document.getElementById('m-role').value.trim(); c.linkedinUrl=li;
+    if(comp||email) c.companyId=matchOrCreateCompany(comp,email,li,'');
+    editingContactId=null; saveStore(); closeModal('modal-manual'); filterPeople(''); toast('✓ '+c.name+' updated'); return;
+  }
   if(manualAddContext==='people'){
     // Add to global contact pool without assigning to an initiative
     const li=document.getElementById('m-linkedin').value.trim();
@@ -1472,7 +1618,12 @@ function renderDetailTab(id){
             ${STATUS_ORDER.map(s=>`<option value="${s}"${ci.status===s?' selected':''}>${STATUS_LABELS[s]}</option>`).join('')}
           </select>
         </td>
-        <td class="text-sm">${channels.length?channels.map(ch=>`<span class="tag" style="margin:1px 2px;font-size:11px">${esc(ch)}</span>`).join(''):'—'}</td>
+        <td class="text-sm">
+          ${channels.length?channels.map(ch=>`<span class="tag" style="margin:1px 2px;font-size:11px">${esc(ch)}</span>`).join(''):''}
+          ${ci.linkedinConnectionStatus==='tried'?`<span class="tag" style="margin:1px 2px;font-size:11px;background:#e0f2fe;color:#0369a1">🔗 Li: Tried</span>`:''}
+          ${ci.linkedinConnectionStatus==='connected'?`<span class="tag" style="margin:1px 2px;font-size:11px;background:#d1fae5;color:#065f46">✅ Li: Connected</span>`:''}
+          ${!channels.length&&!ci.linkedinConnectionStatus?'—':''}
+        </td>
         <td class="text-sm text-muted">${ci.assignedTo?esc(ci.assignedTo):'—'}</td>
         <td class="text-sm" style="${fuOverdue?'color:#ef4444;font-weight:600':'color:#6b7280'}">${fu}${fuOverdue?' ⚠️':''}</td>
         <td class="text-sm text-muted" style="max-width:200px">
@@ -1690,13 +1841,14 @@ function filterPeople(q){
   if(!contacts.length){ el.innerHTML='<div class="empty-state"><div class="empty-state-icon">👥</div><div class="empty-state-title">No people yet</div><p>Add contacts to initiatives to see them here</p></div>'; return; }
   const RANK={closed:8,project_estimated:7,meeting_completed:6,meeting_scheduled:5,responded:4,followed_up:3,contacted:2,to_contact:1};
   el.innerHTML=`<div style="overflow-x:auto"><table>
-    <thead><tr><th>Name</th><th>Company</th><th>Email</th><th>Source</th><th>Initiatives</th><th>Best Status</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Company</th><th>Email</th><th>Source</th><th>Initiatives</th><th>Best Status</th><th></th><th></th></tr></thead>
     <tbody>
       ${contacts.map(c=>{
         const inits=Object.entries(c.initiatives||{});
         const bestStatus=inits.reduce((best,[,ci])=>(RANK[ci.status]||0)>(RANK[best]||0)?ci.status:best,'to_contact');
         const initNames=inits.map(([iid])=>{ const i=store.initiatives.find(x=>x.id===iid); return i?i.name:null; }).filter(Boolean);
-        return `<tr style="cursor:pointer" onclick="openContactDetail('${c.id}')">
+        const cid=c.id;
+        return `<tr style="cursor:pointer" onclick="openContactDetail('${cid}')">
           <td style="font-weight:600">${esc(c.name)}</td>
           <td class="text-muted">${esc(c.company)}</td>
           <td class="text-muted text-sm">${esc(c.email||'—')}</td>
@@ -1704,6 +1856,7 @@ function filterPeople(q){
           <td>${initNames.length?initNames.map(n=>`<span class="tag" style="margin:1px 2px">${esc(n)}</span>`).join(''):'<span class="text-muted text-sm">—</span>'}</td>
           <td><span class="status-pill s-${bestStatus}">${STATUS_LABELS[bestStatus]}</span></td>
           <td class="text-sm text-muted">View →</td>
+          <td style="white-space:nowrap"><button class="btn-ghost" onclick="event.stopPropagation();openEditContact('${cid}')" title="Edit">✏️</button><button class="btn-ghost" style="color:#ef4444" onclick="event.stopPropagation();deleteContact('${cid}')" title="Delete">🗑</button></td>
         </tr>`;
       }).join('')}
     </tbody>
@@ -1727,8 +1880,7 @@ function openContactDetail(cid){
   // Load emails
   const emailEl=document.getElementById('cd-emails');
   emailEl.innerHTML='<span class="spinner"></span> Loading…';
-  if(c.email) loadRecentEmails(c.email, emailEl);
-  else emailEl.innerHTML='<span class="text-muted">No email on file — add one to see conversations.</span>';
+  loadRecentEmails(c.email||'', emailEl, c.hsId||null);
   document.getElementById('cd-initiatives').innerHTML=inits.length===0
     ? '<div class="text-muted text-sm" style="padding:16px 0">Not in any initiative yet.</div>'
     : inits.map(([iid,ci])=>{
@@ -2123,6 +2275,8 @@ function contactKanbanCols(allCards, getInitId, getClickFn, initId){
               ${card.initName?`<span class="tag" style="font-size:10px;background:#ede9fe;color:#5b21b6">${esc(card.initName)}</span>`:''}
               ${channels.map(ch=>`<span class="tag" style="font-size:10px">${esc(ch)}</span>`).join('')}
               ${ci.assignedTo?`<span class="tag" style="font-size:10px;background:#f0fdf4;color:#15803d">👤 ${esc(ci.assignedTo)}</span>`:''}
+              ${ci.linkedinConnectionStatus==='tried'?`<span class="tag" style="font-size:10px;background:#e0f2fe;color:#0369a1">🔗 Li: Tried</span>`:''}
+              ${ci.linkedinConnectionStatus==='connected'?`<span class="tag" style="font-size:10px;background:#d1fae5;color:#065f46">✅ Li: Connected</span>`:''}
               ${ci.nextFollowUp&&new Date(ci.nextFollowUp)<new Date()?`<span class="tag" style="font-size:10px;background:#fef2f2;color:#dc2626">⚠️ Overdue</span>`:''}
             </div>
           </div>`;
@@ -2181,8 +2335,9 @@ function companyKanbanCols(allCards, getInitId, getClickFn, initId){
                 const c=store.contacts[card.cid]; if(!c) return '';
                 const iid=card.initId;
                 const ci=(c.initiatives&&c.initiatives[iid])||{status:'to_contact'};
+                const liTag=ci.linkedinConnectionStatus==='connected'?'<span style="font-size:9px;background:#d1fae5;color:#065f46;padding:1px 4px;border-radius:6px;margin-left:3px">✅Li</span>':ci.linkedinConnectionStatus==='tried'?'<span style="font-size:9px;background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:6px;margin-left:3px">🔗Li</span>':'';
                 return '<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0;cursor:pointer" onclick="event.stopPropagation();'+getClickFn(card)+'">'
-                  +'<div style="font-size:12px;font-weight:500;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px">'+esc(c.name)+'</div>'
+                  +'<div style="font-size:12px;font-weight:500;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px">'+esc(c.name)+liTag+'</div>'
                   +'<span style="font-size:10px;padding:1px 5px;border-radius:8px;flex-shrink:0;margin-left:4px;background:'+STATUS_COLORS[ci.status]+';color:#374151">'+STATUS_LABELS[ci.status]+'</span>'
                   +'</div>';
               }).join('')}
@@ -2386,7 +2541,24 @@ function renderAnalytics(){
     </div>`;
   }
 
-  pipelineEl.innerHTML=monthlyRows+`<div style="font-weight:700;font-size:13px;margin-bottom:10px">Initiative Performance</div>
+  // LinkedIn connection stats
+  let liTried=0, liConnected=0;
+  Object.values(store.contacts).forEach(c=>{
+    Object.entries(c.initiatives||{}).forEach(([initId,ci])=>{
+      if(_analyticsMonth!=='all'&&!addedInMonth(ci)) return;
+      if(ci.linkedinConnectionStatus==='tried') liTried++;
+      else if(ci.linkedinConnectionStatus==='connected') liConnected++;
+    });
+  });
+  const liSection=`<div style="margin-bottom:24px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:10px">LinkedIn Outreach</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div class="stat-card" style="min-width:140px"><div class="stat-label">Tried to Connect</div><div class="stat-value" style="color:#0369a1">${liTried}</div><div class="stat-sub">connection requests sent</div></div>
+      <div class="stat-card" style="min-width:140px"><div class="stat-label">Connected</div><div class="stat-value" style="color:#065f46">${liConnected}</div><div class="stat-sub">accepted connections</div></div>
+    </div>
+  </div>`;
+
+  pipelineEl.innerHTML=monthlyRows+liSection+`<div style="font-weight:700;font-size:13px;margin-bottom:10px">Initiative Performance</div>
   <div style="overflow-x:auto"><table>
     <thead><tr><th>Initiative</th><th>Type</th><th>Contacts</th><th>Contacted</th><th>Mtg Scheduled</th><th>Mtg Completed</th><th>Estimated</th><th>Closed</th></tr></thead>
     <tbody>
