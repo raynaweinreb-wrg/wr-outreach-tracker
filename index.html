@@ -873,6 +873,8 @@ function getOrCreateContact(data) {
   if(existId) return existId;
   const id=uid();
   store.contacts[id]={ id, name:data.name||data.email||'Unknown', company:data.company||'', email:data.email||'', role:data.role||'', linkedinUrl:data.linkedinUrl||'', source:data.source||'manual', clickupId:data.clickupId||null, hsId:data.hsId||null, initiatives:{} };
+  // Immediately link to existing company (prevents duplicate company creation)
+  linkContactToCompany(id);
   return id;
 }
 
