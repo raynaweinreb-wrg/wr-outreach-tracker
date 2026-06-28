@@ -21,8 +21,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .nav-new:hover { background: #6d28d9; }
 
 /* ── Layout ── */
-.view { display: none; padding: 24px 28px; max-width: 1140px; margin: 0 auto; }
+.view { display: none; padding: 24px 28px; max-width: 1200px; margin: 0 auto; }
 .view.active { display: block; }
+#view-initiative-detail { max-width: none; padding: 24px 32px; }
 .card { background: #fff; border-radius: 12px; padding: 20px; border: 1px solid #e8e8e8; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
@@ -133,7 +134,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 .src-csv      { background: #ecfdf5; color: #065f46; }
 .multi-init-badge { background: #ede9fe; color: #5b21b6; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; display: inline-block; cursor: help; }
 .kanban-board { display: flex; gap: 12px; min-width: max-content; padding: 4px 0 16px; }
-.kanban-col { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; }
+.kanban-col { width: 190px; flex-shrink: 0; display: flex; flex-direction: column; }
 .kanban-col-header { padding: 8px 12px; border-radius: 8px 8px 0 0; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; display: flex; justify-content: space-between; align-items: center; }
 .kanban-col-body { flex: 1; background: #f8fafc; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px; padding: 8px; min-height: 80px; }
 .kanban-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 7px; padding: 10px 12px; margin-bottom: 7px; cursor: pointer; transition: box-shadow .15s; }
@@ -938,6 +939,60 @@ function getOrCreateContact(data) {
   return id;
 }
 
+// ─── "Contacted" details prompt (channel + date + optional email) ─────────────
+let _contactedCb=null;
+function promptContactedDetails(affectedCids, initId, callback){
+  document.getElementById('contacted-detail-modal')?.remove();
+  const today=new Date().toISOString().split('T')[0];
+  const single=affectedCids.length===1?store.contacts[affectedCids[0]]:null;
+  const needsEmail=!!(single&&!single.email);
+  const whoLine=single?`<div style="font-size:13px;color:#6b7280;margin-bottom:14px">Marking <strong>${esc(single.name)}</strong> as Contacted</div>`
+    :`<div style="font-size:13px;color:#6b7280;margin-bottom:14px">Marking <strong>${affectedCids.length} contacts</strong> as Contacted</div>`;
+  const html=`<div class="modal-overlay open" id="contacted-detail-modal" onclick="if(event.target===this){_contactedCb&&_contactedCb(null);document.getElementById('contacted-detail-modal')?.remove()}">
+    <div class="modal" style="max-width:380px">
+      <div class="modal-header">
+        <div class="modal-title">How did you reach out?</div>
+        <button class="modal-close" onclick="_contactedCb&&_contactedCb(null);document.getElementById('contacted-detail-modal')?.remove()">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+        ${whoLine}
+        <div>
+          <label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Channel</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px" id="contacted-channels">
+            ${[['Email','✉️'],['LinkedIn','🔗'],['Phone','📞'],['In-Person','🤝'],['Other','💬']].map(([ch,ic])=>`
+              <button type="button" data-ch="${ch}"
+                onclick="document.querySelectorAll('#contacted-channels button').forEach(b=>{b.style.background='';b.style.color='#374151';b.style.borderColor='#d1d5db'});this.style.background='#4f46e5';this.style.color='#fff';this.style.borderColor='#4f46e5';${ch==='Email'&&needsEmail?'document.getElementById(\'contacted-email-group\').style.display=\'block\';':'ch===\'Email\'?\'\':\'\''}"
+                style="padding:6px 14px;border-radius:20px;border:1.5px solid #d1d5db;background:#fff;color:#374151;font-size:13px;font-weight:600;cursor:pointer">${ic} ${ch}</button>
+            `).join('')}
+          </div>
+        </div>
+        ${needsEmail?`<div id="contacted-email-group" style="display:none">
+          <label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Their Email Address</label>
+          <input type="email" id="contacted-email-input" placeholder="name@company.com" style="width:100%;margin-top:6px">
+        </div>`:''}
+        <div>
+          <label style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">Date</label>
+          <input type="date" id="contacted-date-input" value="${today}" style="width:100%;margin-top:6px">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="_confirmContactedDetails(false)">Skip</button>
+        <button class="btn btn-primary" onclick="_confirmContactedDetails(true)">Confirm</button>
+      </div>
+    </div>
+  </div>`;
+  _contactedCb=callback;
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function _confirmContactedDetails(confirmed){
+  const date=confirmed?(document.getElementById('contacted-date-input')?.value||null):null;
+  const chBtn=document.querySelector('#contacted-channels button[style*="background: rgb(79, 70, 229)"], #contacted-channels button[style*="background:#4f46e5"], #contacted-channels button[style*="background: #4f46e5"]');
+  const channel=confirmed&&chBtn?chBtn.dataset.ch:null;
+  const email=confirmed?(document.getElementById('contacted-email-input')?.value?.trim()||null):null;
+  document.getElementById('contacted-detail-modal')?.remove();
+  if(_contactedCb){ _contactedCb(confirmed?{date,channels:channel?[channel]:[],email}:null); _contactedCb=null; }
+}
+
 // ─── Status date prompt ───────────────────────────────────────────────────────
 let _statusDateCb=null;
 function promptStatusDate(newStatus, callback){
@@ -1011,14 +1066,41 @@ function quickStatus(initId,cid,status) {
   c.initiatives[initId]=c.initiatives[initId]||{};
   const prevStatus=c.initiatives[initId].status;
   if(status===prevStatus) return;
-  promptStatusDate(status, date=>{
-    c.initiatives[initId].status=status;
-    if(date) c.initiatives[initId].lastContact=date;
-    else if(status!=='to_contact') c.initiatives[initId].lastContact=new Date().toISOString().split('T')[0];
-    recordStatusHistory(c.initiatives[initId], status, date);
-    logChange('status_changed','contact',cid,{initId,from:prevStatus,to:status,contactName:c.name});
-    saveStore(); renderDetailTab(initId);
-  });
+  if(status==='contacted'){
+    promptContactedDetails([cid], initId, result=>{
+      if(!result){ renderDetailTab(initId); return; }
+      const {date,channels,email}=result;
+      c.initiatives[initId].status=status;
+      c.initiatives[initId].lastContact=date||new Date().toISOString().split('T')[0];
+      if(channels&&channels.length) c.initiatives[initId].channels=[...new Set([...(c.initiatives[initId].channels||[]),...channels])];
+      if(email&&!c.email) c.email=email;
+      recordStatusHistory(c.initiatives[initId], status, date);
+      logChange('status_changed','contact',cid,{initId,from:prevStatus,to:status,contactName:c.name,channels});
+      saveStore(); renderDetailTab(initId);
+    });
+  } else {
+    promptStatusDate(status, date=>{
+      c.initiatives[initId].status=status;
+      if(date) c.initiatives[initId].lastContact=date;
+      else if(status!=='to_contact') c.initiatives[initId].lastContact=new Date().toISOString().split('T')[0];
+      recordStatusHistory(c.initiatives[initId], status, date);
+      logChange('status_changed','contact',cid,{initId,from:prevStatus,to:status,contactName:c.name});
+      saveStore(); renderDetailTab(initId);
+    });
+  }
+}
+
+function quickStatusPopup(e, initId, cid){
+  e.stopPropagation();
+  document.getElementById('qs-popup')?.remove();
+  const rect=e.currentTarget.getBoundingClientRect();
+  const html=`<div id="qs-popup" style="position:fixed;z-index:9999;background:#fff;border:1px solid #e5e7eb;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);padding:6px;min-width:170px;top:${Math.min(rect.bottom+4, window.innerHeight-280)}px;left:${rect.left}px">
+    ${STATUS_ORDER.map(s=>`<div onclick="document.getElementById('qs-popup')?.remove();quickStatus('${initId}','${cid}','${s}')" style="padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background=''">
+      <span style="width:10px;height:10px;border-radius:3px;background:${STATUS_COLORS[s]};display:inline-block;flex-shrink:0"></span>${STATUS_LABELS[s]}
+    </div>`).join('')}
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',html);
+  setTimeout(()=>document.addEventListener('click',function rm(){ document.getElementById('qs-popup')?.remove(); document.removeEventListener('click',rm); },{once:true}),10);
 }
 
 // ═══════════════════════════════════════════
@@ -1761,14 +1843,49 @@ function renderDetailTab(id){
       <button onclick="currentListMode='company';renderDetailTab('${id}')" style="padding:4px 12px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;${currentListMode==='company'?'background:#fff;color:#4f46e5;box-shadow:0 1px 3px rgba(0,0,0,.1)':'background:transparent;color:#6b7280'}">By Company</button>
     </div>`;
 
-    const tableBody=currentListMode==='company'?buildByCompanyRows():init.contacts.map(buildContactRow).join('');
+    // Filter + sort contacts for list view
+    const SRANK={to_contact:1,contacted:2,followed_up:3,responded:4,meeting_scheduled:5,meeting_completed:6,project_estimated:7,closed:8};
+    let listCids=init.contacts.filter(cid=>{
+      if(currentListStatusFilter==='all') return true;
+      const c=store.contacts[cid]; if(!c) return false;
+      const ci=(c.initiatives&&c.initiatives[id])||{status:'to_contact'};
+      return ci.status===currentListStatusFilter;
+    });
+    if(currentListSort==='name') listCids=[...listCids].sort((a,b)=>(store.contacts[a]?.name||'').localeCompare(store.contacts[b]?.name||''));
+    else if(currentListSort==='status') listCids=[...listCids].sort((a,b)=>{
+      const sa=(store.contacts[a]?.initiatives?.[id]?.status)||'to_contact';
+      const sb=(store.contacts[b]?.initiatives?.[id]?.status)||'to_contact';
+      return (SRANK[sa]||0)-(SRANK[sb]||0);
+    });
+    else if(currentListSort==='followup') listCids=[...listCids].sort((a,b)=>{
+      const fa=store.contacts[a]?.initiatives?.[id]?.nextFollowUp||'9999';
+      const fb=store.contacts[b]?.initiatives?.[id]?.nextFollowUp||'9999';
+      return fa.localeCompare(fb);
+    });
+
+    const filterBar=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <select onchange="currentListStatusFilter=this.value;renderDetailTab('${id}')" style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid #d1d5db;background:#fff;color:#374151">
+        <option value="all"${currentListStatusFilter==='all'?' selected':''}>All Statuses</option>
+        ${STATUS_ORDER.map(s=>`<option value="${s}"${currentListStatusFilter===s?' selected':''}>${STATUS_LABELS[s]}</option>`).join('')}
+      </select>
+      <select onchange="currentListSort=this.value;renderDetailTab('${id}')" style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid #d1d5db;background:#fff;color:#374151">
+        <option value="default"${currentListSort==='default'?' selected':''}>Sort: Default</option>
+        <option value="name"${currentListSort==='name'?' selected':''}>Sort: Name A–Z</option>
+        <option value="status"${currentListSort==='status'?' selected':''}>Sort: Status</option>
+        <option value="followup"${currentListSort==='followup'?' selected':''}>Sort: Follow-up Date</option>
+      </select>
+      ${currentListStatusFilter!=='all'?`<span class="tag" style="background:#ede9fe;color:#5b21b6;font-size:11px">${listCids.length} shown</span>`:''}
+    </div>`;
+
+    const tableBody=currentListMode==='company'?buildByCompanyRows():listCids.map(buildContactRow).join('');
     const tableHead=`<tr><th>Name / Company</th><th>Status</th><th>Channel</th><th>Assigned To</th><th>Next Follow-up</th><th>Notes / Next Steps</th><th>Also In</th><th></th></tr>`;
 
     el.innerHTML=`
-      <div class="flex items-center justify-between" style="margin-bottom:14px">
-        <div style="display:flex;align-items:center;gap:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <div style="font-size:13px;color:#6b7280">${cnt} contacts</div>
           ${listModeToggle}
+          ${currentListMode==='contact'?filterBar:''}
         </div>
         <div class="flex gap-8">
           <button class="btn btn-sm btn-outline" onclick="openInitCSVUpload('${id}')">📊 Upload Spreadsheet</button>
@@ -1780,12 +1897,12 @@ function renderDetailTab(id){
         <div class="empty-state">
           <div class="empty-state-icon">👥</div>
           <div class="empty-state-title">No contacts yet</div>
-          <p>Add up to 30 curated contacts from HubSpot, ClickUp, a CSV upload, or manually</p>
+          <p>Add up to ${init.contactLimit||30} curated contacts from HubSpot, ClickUp, a CSV upload, or manually</p>
           <button class="btn btn-primary" style="margin-top:14px" onclick="openContactsModal('${id}')">+ Find Contacts</button>
         </div>
       `:`<div style="overflow-x:auto"><table>
         <thead>${tableHead}</thead>
-        <tbody>${tableBody}</tbody>
+        <tbody>${tableBody||'<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:24px">No contacts match this filter</td></tr>'}</tbody>
       </table></div>`}
     `;
   } else {
@@ -2297,33 +2414,45 @@ function kanbanDrop(e, status, initId){
   e.currentTarget.classList.remove('drag-over');
   if(!_dragData||_dragData.initId!==initId){ _dragData=null; return; }
   const {type,key}=_dragData; _dragData=null;
-  // Collect affected contacts
-  const affected=[];
+  // Collect affected contacts + their cids
+  const affected=[]; const affectedCids=[];
   if(type==='contact'){
     const c=store.contacts[key]; if(!c) return;
     if(!c.initiatives[initId]) c.initiatives[initId]={};
-    if(c.initiatives[initId].status!==status) affected.push(c.initiatives[initId]);
+    if(c.initiatives[initId].status!==status){ affected.push(c.initiatives[initId]); affectedCids.push(key); }
   } else if(type==='company'){
     const init=store.initiatives.find(i=>i.id===initId); if(!init) return;
     init.contacts.forEach(cid=>{
       const c=store.contacts[cid]; if(!c) return;
       if(c.companyId===key||(!c.companyId&&(c.company||'(No Company)')===key)){
         if(!c.initiatives[initId]) c.initiatives[initId]={};
-        if(c.initiatives[initId].status!==status) affected.push(c.initiatives[initId]);
+        if(c.initiatives[initId].status!==status){ affected.push(c.initiatives[initId]); affectedCids.push(cid); }
       }
     });
   }
   if(!affected.length){ renderInitKanban(initId, currentKanbanMode); return; }
-  promptStatusDate(status, date=>{
-    affected.forEach(ci=>{ ci.status=status; if(date) ci.lastContact=date; recordStatusHistory(ci, status, date); });
-    saveStore(); renderInitKanban(initId, currentKanbanMode);
-  });
+  if(status==='contacted'){
+    promptContactedDetails(affectedCids, initId, result=>{
+      if(!result){ renderInitKanban(initId, currentKanbanMode); return; }
+      const {date,channels,email}=result;
+      affected.forEach(ci=>{ ci.status=status; ci.lastContact=date||new Date().toISOString().split('T')[0]; recordStatusHistory(ci,status,date); if(channels&&channels.length) ci.channels=[...new Set([...(ci.channels||[]),...channels])]; });
+      if(affectedCids.length===1&&email){ const c=store.contacts[affectedCids[0]]; if(c&&!c.email) c.email=email; }
+      saveStore(); renderInitKanban(initId, currentKanbanMode);
+    });
+  } else {
+    promptStatusDate(status, date=>{
+      affected.forEach(ci=>{ ci.status=status; if(date) ci.lastContact=date; else ci.lastContact=new Date().toISOString().split('T')[0]; recordStatusHistory(ci,status,date); });
+      saveStore(); renderInitKanban(initId, currentKanbanMode);
+    });
+  }
 }
 
 // ═══════════════════════════════════════════
 // KANBAN
 // ═══════════════════════════════════════════
 let currentKanbanMode = 'company'; // 'contact' | 'company'
+let currentListStatusFilter = 'all';
+let currentListSort = 'default'; // 'default' | 'name' | 'status' | 'followup'
 const RANK = {closed:8,project_estimated:7,meeting_completed:6,meeting_scheduled:5,responded:4,followed_up:3,contacted:2,to_contact:1};
 
 function kanbanToggleHTML(mode, onchangeFn){
@@ -2353,8 +2482,12 @@ function contactKanbanCols(allCards, getInitId, getClickFn, initId){
           const channels=Array.isArray(ci.channels)?ci.channels:(ci.channel?[ci.channel]:[]);
           const dragAttrs=initId?`draggable="true" ondragstart="kanbanDragStart(event,'contact','${card.cid}','${initId}')"` :'';
           const liIcon=ci.linkedinConnectionStatus==='connected'?'<span title="LinkedIn Connected" style="font-size:10px;vertical-align:middle;margin-left:4px">✅</span>':ci.linkedinConnectionStatus==='tried'?'<span title="LinkedIn: Tried to Connect" style="font-size:10px;vertical-align:middle;margin-left:4px">🔗</span>':'';
+          const iidK=iid; const cidK=card.cid;
           return `<div class="kanban-card" ${dragAttrs} onclick="${getClickFn(card)}">
-            <div class="kanban-card-name">${esc(c.name)}${liIcon}</div>
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:4px">
+              <div class="kanban-card-name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}${liIcon}</div>
+              ${initId?`<span class="status-pill s-${ci.status}" style="font-size:9px;padding:2px 6px;flex-shrink:0;cursor:pointer" onclick="event.stopPropagation();quickStatusPopup(event,'${iidK}','${cidK}')" title="Click to change status">${STATUS_LABELS[ci.status]||ci.status}</span>`:''}
+            </div>
             ${c.company?`<div class="kanban-card-company">${esc(c.company)}</div>`:''}
             <div class="kanban-card-tags">
               ${card.initName?`<span class="tag" style="font-size:10px;background:#ede9fe;color:#5b21b6">${esc(card.initName)}</span>`:''}
@@ -2421,9 +2554,10 @@ function companyKanbanCols(allCards, getInitId, getClickFn, initId){
                 const iid=card.initId;
                 const ci=(c.initiatives&&c.initiatives[iid])||{status:'to_contact'};
                 const liTag=ci.linkedinConnectionStatus==='connected'?'<span style="font-size:9px;background:#d1fae5;color:#065f46;padding:1px 4px;border-radius:6px;margin-left:3px">✅Li</span>':ci.linkedinConnectionStatus==='tried'?'<span style="font-size:9px;background:#e0f2fe;color:#0369a1;padding:1px 4px;border-radius:6px;margin-left:3px">🔗Li</span>':'';
-                return '<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0;cursor:pointer" onclick="event.stopPropagation();'+getClickFn(card)+'">'
-                  +'<div style="font-size:12px;font-weight:500;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px">'+esc(c.name)+liTag+'</div>'
-                  +'<span style="font-size:10px;padding:1px 5px;border-radius:8px;flex-shrink:0;margin-left:4px;background:'+STATUS_COLORS[ci.status]+';color:#374151">'+STATUS_LABELS[ci.status]+'</span>'
+                const initIdForCard=iid||'';
+                return '<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0">'
+                  +'<div style="font-size:12px;font-weight:500;color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px;cursor:pointer" onclick="event.stopPropagation();'+getClickFn(card)+'">'+esc(c.name)+liTag+'</div>'
+                  +'<span class="status-pill s-'+ci.status+'" style="font-size:9px;padding:2px 5px;flex-shrink:0;margin-left:4px;cursor:pointer" onclick="event.stopPropagation();quickStatusPopup(event,\''+initIdForCard+'\',\''+card.cid+'\')" title="Click to change status">'+STATUS_LABELS[ci.status]+'</span>'
                   +'</div>';
               }).join('')}
             </div>`:''}
