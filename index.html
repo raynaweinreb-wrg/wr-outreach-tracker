@@ -779,7 +779,8 @@ function mergeDuplicateCompanies(){
 
 function buildCompanyIndex(){
   Object.keys(store.contacts).forEach(cid=>linkContactToCompany(cid));
-  mergeDuplicateCompanies(); // auto-clean duplicates on every load
+  const merged=mergeDuplicateCompanies();
+  if(merged>0) saveStore(); // persist the merge so duplicates don't come back
 }
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
@@ -870,11 +871,17 @@ function getOrCreateContact(data) {
            (data.clickupId && c.clickupId===data.clickupId) ||
            (data.hsId && c.hsId===data.hsId);
   });
-  if(existId) return existId;
+  if(existId){
+    // If we have a forced company, apply it to the existing contact too
+    if(data._forceCompanyId) store.contacts[existId].companyId=data._forceCompanyId;
+    return existId;
+  }
   const id=uid();
-  store.contacts[id]={ id, name:data.name||data.email||'Unknown', company:data.company||'', email:data.email||'', role:data.role||'', linkedinUrl:data.linkedinUrl||'', source:data.source||'manual', clickupId:data.clickupId||null, hsId:data.hsId||null, initiatives:{} };
-  // Immediately link to existing company (prevents duplicate company creation)
-  linkContactToCompany(id);
+  const forcedCoId=data._forceCompanyId||null;
+  const forcedCo=forcedCoId&&store.companies[forcedCoId];
+  store.contacts[id]={ id, name:data.name||data.email||'Unknown', company:forcedCo?forcedCo.name:(data.company||''), email:data.email||'', role:data.role||'', linkedinUrl:data.linkedinUrl||'', source:data.source||'manual', clickupId:data.clickupId||null, hsId:data.hsId||null, companyId:forcedCoId||null, initiatives:{} };
+  // If no forced company, link via name/email matching
+  if(!forcedCoId) linkContactToCompany(id);
   return id;
 }
 
@@ -1297,7 +1304,8 @@ function addFromSug(s){
   if(init.contacts.length>=(init.contactLimit||30)) toast(`You've hit the limit of ${init.contactLimit||30} contacts!`);
 }
 
-let manualAddContext = null; // 'initiative' | 'people'
+let manualAddContext = null; // 'initiative' | 'people' | 'edit'
+let manualAddCompanyId = null; // forced companyId when adding from a company card
 function openManualAddFromCompany(coId){
   document.getElementById('co-detail-overlay')?.remove();
   document.getElementById('co-add-contact-overlay')?.remove();
@@ -1314,11 +1322,12 @@ function openManualAddFromCompany(coId){
             ${existing.slice(0,30).map(c=>`<div style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f9fafb;font-size:13px" onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background=''" onclick="linkExistingContactToCompany('${coId}','${c.id}')"><strong>${esc(c.name)}</strong>${c.role?' <span style=color:#6b7280>· '+esc(c.role)+'</span>':''}${c.email?'<div style=font-size:11px;color:#7c3aed>'+esc(c.email)+'</div>':''}</div>`).join('')}
           </div>
         </div><div style="text-align:center;font-size:12px;color:#9ca3af;margin:10px 0">— or —</div>`:''}
-        <button class="btn btn-primary" style="width:100%" onclick="document.getElementById('co-add-contact-overlay').remove();openManualAdd(coAddPrefill)">+ Add New Contact</button>
+        <button class="btn btn-primary" style="width:100%" onclick="document.getElementById('co-add-contact-overlay').remove();openManualAdd(coAddPrefill,coAddCoId)">+ Add New Contact</button>
       </div>
     </div>
   </div>`;
   window.coAddPrefill=co.name||'';
+  window.coAddCoId=coId;
   document.body.insertAdjacentHTML('beforeend',html);
 }
 function filterCoAddList(coId,q){
@@ -1347,8 +1356,8 @@ function openEditContact(cid){
   document.getElementById('linkedin-status').textContent='';
   document.getElementById('modal-manual').classList.add('open');
 }
-function openManualAdd(prefillCompany){ editingContactId=null; manualAddContext='initiative'; document.getElementById('modal-manual-title').textContent='Add Contact'; document.getElementById('modal-manual-submit-btn').textContent='Add Contact'; ['m-name','m-company','m-email','m-role','m-linkedin'].forEach(id=>document.getElementById(id).value=''); document.getElementById('linkedin-status').textContent=''; if(prefillCompany) document.getElementById('m-company').value=prefillCompany; document.getElementById('modal-manual').classList.add('open'); }
-function openManualAddGlobal(){ editingContactId=null; manualAddContext='people'; document.getElementById('modal-manual-title').textContent='Add Contact'; document.getElementById('modal-manual-submit-btn').textContent='Add Contact'; ['m-name','m-company','m-email','m-role','m-linkedin'].forEach(id=>document.getElementById(id).value=''); document.getElementById('linkedin-status').textContent=''; document.getElementById('modal-manual').classList.add('open'); }
+function openManualAdd(prefillCompany, prefillCoId){ editingContactId=null; manualAddCompanyId=prefillCoId||null; manualAddContext='initiative'; document.getElementById('modal-manual-title').textContent='Add Contact'; document.getElementById('modal-manual-submit-btn').textContent='Add Contact'; ['m-name','m-company','m-email','m-role','m-linkedin'].forEach(id=>document.getElementById(id).value=''); document.getElementById('linkedin-status').textContent=''; if(prefillCompany) document.getElementById('m-company').value=prefillCompany; document.getElementById('modal-manual').classList.add('open'); }
+function openManualAddGlobal(){ editingContactId=null; manualAddCompanyId=null; manualAddContext='people'; document.getElementById('modal-manual-title').textContent='Add Contact'; document.getElementById('modal-manual-submit-btn').textContent='Add Contact'; ['m-name','m-company','m-email','m-role','m-linkedin'].forEach(id=>document.getElementById(id).value=''); document.getElementById('linkedin-status').textContent=''; document.getElementById('modal-manual').classList.add('open'); }
 function onLinkedInInput(val){
   const btn=document.getElementById('linkedin-lookup-btn');
   btn.style.display=val.includes('linkedin.com')?'':'none';
@@ -1396,12 +1405,18 @@ function submitManual(){
     // Add to global contact pool without assigning to an initiative
     const li=document.getElementById('m-linkedin').value.trim();
     const comp=document.getElementById('m-company').value.trim();
-    const coId=comp||email?matchOrCreateCompany(comp,email,li,''):null;
+    // Use forced coId if coming from company card, otherwise match/create
+    const coId=manualAddCompanyId||(comp||email?matchOrCreateCompany(comp,email,li,''):null);
+    const co=coId&&store.companies[coId];
     const id=uid();
-    store.contacts[id]={id,name:name||email,company:comp,email,role:document.getElementById('m-role').value.trim(),linkedinUrl:li,phone:'',companyId:coId,source:'manual',clickupId:null,hsId:null,rosterStatus:'',initiatives:{}};
+    store.contacts[id]={id,name:name||email,company:co?co.name:comp,email,role:document.getElementById('m-role').value.trim(),linkedinUrl:li,phone:'',companyId:coId,source:'manual',clickupId:null,hsId:null,rosterStatus:'',initiatives:{}};
+    manualAddCompanyId=null;
     saveStore(); closeModal('modal-manual'); filterPeople(''); toast(`✓ ${name||email} added to contacts`);
   } else {
-    const added=addToInit(currentInitId,{name:name||email,company:document.getElementById('m-company').value.trim(),email,role:document.getElementById('m-role').value.trim(),linkedinUrl:document.getElementById('m-linkedin').value.trim(),source:'manual'});
+    const li=document.getElementById('m-linkedin').value.trim();
+    const comp=document.getElementById('m-company').value.trim();
+    const added=addToInit(currentInitId,{name:name||email,company:comp,email,role:document.getElementById('m-role').value.trim(),linkedinUrl:li,source:'manual',_forceCompanyId:manualAddCompanyId||null});
+    manualAddCompanyId=null;
     if(added){ closeModal('modal-manual'); renderInitDetail(currentInitId); toast(`✓ ${name||email} added`); }
   }
 }
