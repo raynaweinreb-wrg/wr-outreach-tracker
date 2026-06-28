@@ -2324,7 +2324,7 @@ function kanbanDrop(e, status, initId){
 // KANBAN
 // ═══════════════════════════════════════════
 let currentKanbanMode = 'company'; // 'contact' | 'company'
-const RANK = {closed:7,project_estimated:6,meeting_scheduled:5,responded:4,followed_up:3,contacted:2,to_contact:1};
+const RANK = {closed:8,project_estimated:7,meeting_completed:6,meeting_scheduled:5,responded:4,followed_up:3,contacted:2,to_contact:1};
 
 function kanbanToggleHTML(mode, onchangeFn){
   return `<div style="display:inline-flex;border:1px solid #e5e7eb;border-radius:7px;overflow:hidden;margin-bottom:12px">
