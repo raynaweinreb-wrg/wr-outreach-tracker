@@ -930,6 +930,57 @@ function setFilter(f,btn) {
   renderInitiatives();
 }
 
+function openEditInitModal(id){
+  const init=store.initiatives.find(i=>i.id===id); if(!init) return;
+  document.getElementById('edit-init-modal')?.remove();
+  const html=`<div id="edit-init-modal" class="modal-overlay open" data-dynamic="1" onclick="if(event.target===this)this.remove()">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <div class="modal-title">Edit Initiative</div>
+        <button class="modal-close" onclick="document.getElementById('edit-init-modal').remove()">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Title</label>
+          <input type="text" id="edit-init-name" value="${esc(init.name)}" style="width:100%">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Description / Hook</label>
+          <textarea id="edit-init-offer" style="width:100%;min-height:80px">${esc(init.offer||'')}</textarea>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Contact Goal</label>
+          <input type="number" id="edit-init-limit" value="${init.contactLimit||30}" min="1" max="500" style="width:120px">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Target Date</label>
+          <input type="date" id="edit-init-date" value="${init.targetDate||''}">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('edit-init-modal').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveEditInit('${id}')">Save Changes</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function saveEditInit(id){
+  const init=store.initiatives.find(i=>i.id===id); if(!init) return;
+  const name=document.getElementById('edit-init-name').value.trim();
+  if(!name){ toast('Title is required'); return; }
+  init.name=name;
+  init.offer=document.getElementById('edit-init-offer').value.trim();
+  init.contactLimit=parseInt(document.getElementById('edit-init-limit').value)||30;
+  init.targetDate=document.getElementById('edit-init-date').value||'';
+  logChange('initiative_edited','initiative',id,{name:init.name});
+  saveStore();
+  document.getElementById('edit-init-modal').remove();
+  renderInitDetail(id);
+  toast('✓ Initiative updated');
+}
+
 function toggleArchive(id) {
   const i=store.initiatives.find(x=>x.id===id); if(!i) return;
   i.status=i.status==='archived'?'active':'archived'; saveStore(); renderInitDetail(id);
@@ -1062,7 +1113,7 @@ function recordStatusHistory(ci, status, date){
 // ─── Contacts added to initiatives ───────────────────────────────────────────
 function addToInit(initId, data) {
   const init=store.initiatives.find(i=>i.id===initId); if(!init) return false;
-  const _limit=init.contactLimit||30; if(init.contacts.length>=_limit){ toast(`Max ${_limit} contacts per initiative.`); return false; }
+  const _limit=init.contactLimit||30; if(init.contacts.length>=_limit*2){ toast(`You have a lot of contacts in this initiative (${init.contacts.length}). Consider splitting it up.`); }
   const cid=getOrCreateContact(data);
   if(init.contacts.includes(cid)){ toast(`${store.contacts[cid].name} already in this initiative.`); return false; }
   const isExisting=Object.values(store.initiatives).some(i=>i.id!==initId&&(i.contacts||[]).includes(cid));
@@ -1461,7 +1512,7 @@ function renderSuggestions(suggestions,query){
 
 function addFromSug(s){
   const init=store.initiatives.find(i=>i.id===currentInitId); if(!init) return;
-  const _lim2=init.contactLimit||30; if(init.contacts.length>=_lim2){ toast(`Max ${_lim2} contacts per initiative.`); return; }
+  const _lim2=init.contactLimit||30; if(init.contacts.length>=_lim2*2){ toast(`You have a lot of contacts in this initiative (${init.contacts.length}). Consider splitting it up.`); }
 
   // If the suggestion is already a stored contact (from roster import), link directly
   let cid = store.contacts[s.id] ? s.id : null;
@@ -1477,9 +1528,9 @@ function addFromSug(s){
   renderInitDetail(currentInitId);
   renderSuggestions(allSuggestions,document.getElementById('contact-search').value);
   const lbl=document.getElementById('contact-count-lbl');
-  if(lbl) lbl.textContent=`${init.contacts.length}/${init.contactLimit||30} contacts added`;
+  const _lim3=init.contactLimit||30;
+  if(lbl) lbl.textContent=`${init.contacts.length}/${_lim3} contacts added`;
   toast(`✓ ${s.name} added`);
-  if(init.contacts.length>=(init.contactLimit||30)) toast(`You've hit the limit of ${init.contactLimit||30} contacts!`);
 }
 
 let manualAddContext = null; // 'initiative' | 'people' | 'edit'
@@ -1626,7 +1677,7 @@ function renderDashboard(){
     listEl.innerHTML='<div class="empty-state" style="padding:24px"><div class="empty-state-icon">🚀</div><div class="empty-state-title">No active initiatives</div><p>Create your first initiative or click an idea below</p></div>';
   } else {
     listEl.innerHTML=active.slice(0,5).map(init=>{
-      const cnt=init.contacts.length; const pct=Math.min(Math.round(cnt/30*100),100);
+      const cnt=init.contacts.length; const _goal=init.contactLimit||30; const pct=Math.min(Math.round(cnt/_goal*100),100);
       const sc=countStatuses(init);
       return `<div style="padding:10px 0;border-bottom:1px solid #f3f4f6;cursor:pointer" onclick="openInitDetail('${init.id}')">
         <div class="flex items-center justify-between">
@@ -1635,7 +1686,7 @@ function renderDashboard(){
             <span style="font-weight:600;font-size:13px">${esc(init.name)}</span>
           </div>
           <div class="flex gap-12 text-sm text-muted">
-            <span>${cnt}/30</span>
+            <span>${cnt}/${_goal}</span>
             <span>${sc.meeting_scheduled||0} meetings</span>
             <span>${sc.closed||0} closed</span>
           </div>
@@ -1688,7 +1739,7 @@ function renderInitiatives(){
   const el=document.getElementById('init-list');
   if(!list.length){ el.innerHTML='<div class="empty-state"><div class="empty-state-icon">✨</div><div class="empty-state-title">No initiatives here</div><p>Click "+ New Initiative" or pick an idea from the dashboard</p></div>'; return; }
   el.innerHTML=`<div class="grid-2">${list.map(init=>{
-    const cnt=init.contacts.length; const pct=Math.min(Math.round(cnt/30*100),100);
+    const cnt=init.contacts.length; const _goal=init.contactLimit||30; const pct=Math.min(Math.round(cnt/_goal*100),100);
     const sc=countStatuses(init);
     const d=init.targetDate?new Date(init.targetDate+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}):'No date';
     return `<div class="init-card" onclick="openInitDetail('${init.id}')">
@@ -1700,7 +1751,7 @@ function renderInitiatives(){
       ${init.offer?`<div class="text-sm text-muted" style="margin-top:4px;line-height:1.4">${esc(init.offer.substring(0,80))}${init.offer.length>80?'…':''}</div>`:''}
       <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
       <div class="flex gap-16" style="margin-top:12px;padding-top:12px;border-top:1px solid #f3f4f6">
-        <div class="text-sm text-muted">👥 <strong>${cnt}</strong>/30</div>
+        <div class="text-sm text-muted">👥 <strong>${cnt}</strong>/${_goal}</div>
         <div class="text-sm text-muted">📅 <strong>${sc.meeting_scheduled||0}</strong> meetings</div>
         <div class="text-sm text-muted">✓ <strong>${sc.closed||0}</strong> closed</div>
         ${init.status==='archived'?'<span class="tag">Archived</span>':''}
@@ -1732,7 +1783,7 @@ function countStatuses(init){
 function renderInitDetail(id){
   const init=store.initiatives.find(i=>i.id===id); if(!init) return;
   const el=document.getElementById('init-detail');
-  const sc=countStatuses(init); const cnt=init.contacts.length;
+  const sc=countStatuses(init); const cnt=init.contacts.length; const _goal=init.contactLimit||30;
   const inPipeline=cnt-(sc.to_contact||0);
   const meetings=sc.meeting_scheduled||0; const closed=sc.closed||0;
   const doneTasks=(init.tasks||[]).filter(t=>t.done).length; const totalTasks=(init.tasks||[]).length;
@@ -1747,12 +1798,13 @@ function renderInitDetail(id){
         ${init.offer?`<div class="text-muted" style="font-size:13px;margin-top:4px">📌 ${esc(init.offer)}</div>`:''}
       </div>
       <div class="flex gap-8">
+        <button class="btn btn-sm btn-outline" onclick="openEditInitModal('${id}')">✏️ Edit</button>
         <button class="btn btn-sm btn-outline" onclick="toggleArchive('${id}')">${init.status==='archived'?'Restore':'Archive'}</button>
         <button class="btn btn-sm btn-danger" onclick="deleteInit('${id}')">Delete</button>
       </div>
     </div>
     <div class="detail-stats">
-      <div class="detail-stat"><div class="detail-stat-label">Contacts</div><div class="detail-stat-val">${cnt}/30</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Contacts</div><div class="detail-stat-val">${cnt}/${_goal}</div></div>
       <div class="detail-stat"><div class="detail-stat-label">In Pipeline</div><div class="detail-stat-val">${inPipeline}</div></div>
       <div class="detail-stat"><div class="detail-stat-label">Meetings</div><div class="detail-stat-val">${meetings}</div></div>
       <div class="detail-stat"><div class="detail-stat-label">Closed</div><div class="detail-stat-val">${closed}</div></div>
