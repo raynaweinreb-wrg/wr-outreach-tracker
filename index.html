@@ -713,10 +713,13 @@ function logChange(action, entityType, entityId, details={}){
   if(store.auditLog.length>2000) store.auditLog=store.auditLog.slice(-2000);
 }
 let _saveTimer=null;
+let _pendingSave=false;
 function saveStore(){
   clearTimeout(_saveTimer);
+  _pendingSave=true;
   updateSaveIndicator('saving');
   _saveTimer=setTimeout(async()=>{
+    _pendingSave=false;
     try{
       await sb.from('app_data').upsert({id:'main',data:store,updated_at:new Date().toISOString()});
       updateSaveIndicator('saved');
@@ -724,8 +727,21 @@ function saveStore(){
       updateSaveIndicator('error');
       console.error('Save failed:',e);
     }
-  },700);
+  },200);
 }
+// Force-flush any pending save on page unload (prevents data loss on quick refresh)
+window.addEventListener('beforeunload',()=>{
+  if(!_pendingSave) return;
+  clearTimeout(_saveTimer);
+  _pendingSave=false;
+  const url=`${SUPABASE_URL}/rest/v1/app_data?id=eq.main`;
+  fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY,'Authorization':'Bearer '+SUPABASE_ANON_KEY,'Prefer':'resolution=merge-duplicates'},
+    body:JSON.stringify({id:'main',data:store,updated_at:new Date().toISOString()}),
+    keepalive:true
+  });
+});
 function updateSaveIndicator(state){
   const el=document.getElementById('save-indicator'); if(!el) return;
   if(state==='saving'){el.textContent='⏳ Saving…';el.style.color='#6b7280';}
@@ -3398,6 +3414,31 @@ async function initApp(){
   if(!lastSync||(Date.now()-lastSync)>60*60*1000){
     setTimeout(()=>syncHubSpot(true), 3000); // 3s delay so UI is ready
   }
+
+  // ── Real-time cross-session sync ──
+  // When Claude in Chrome (or another tab) saves data, reload it here automatically
+  sb.channel('store-sync')
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_data',filter:'id=eq.main'},
+      payload=>{
+        if(_pendingSave) return; // We just saved — don't overwrite our own write
+        const fresh=payload.new?.data;
+        if(!fresh) return;
+        store=mergeDefaults(fresh);
+        store.auditLog=store.auditLog||[];
+        buildCompanyIndex();
+        // Re-render whatever is currently visible
+        const activeEl=document.querySelector('.view.active');
+        const viewId=activeEl?activeEl.id.replace('view-',''):'dashboard';
+        if(viewId==='initiative-detail'&&currentInitId) renderInitDetail(currentInitId);
+        else if(viewId==='dashboard') renderDashboard();
+        else if(viewId==='initiatives') renderInitiatives();
+        else if(viewId==='pipeline') renderGlobalPipeline();
+        else if(viewId==='people') renderPeople();
+        else if(viewId==='analytics') renderAnalytics();
+        else if(viewId==='companies') renderCompaniesView();
+        toast('🔄 Synced — new data from another session');
+      })
+    .subscribe();
 }
 
 // ═══════════════════════════════════════════
