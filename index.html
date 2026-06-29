@@ -587,12 +587,8 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
         </div>
       </div>
       <div class="form-group" style="margin-top:12px">
-        <label>LinkedIn Connection</label>
-        <select id="notes-linkedin-status" style="width:auto;min-width:180px">
-          <option value="">— No action —</option>
-          <option value="tried">🔗 Tried to Connect</option>
-          <option value="connected">✅ Connected</option>
-        </select>
+        <label>LinkedIn Outreach</label>
+        <div id="li-outreach-rows" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
       </div>
       <div class="form-group">
         <label>What Happened / What Was Sent</label>
@@ -661,6 +657,7 @@ if(!window.cowork){
 // ═══════════════════════════════════════════
 const STORE_KEY = 'wr_outreach_v4';
 const STATUS_ORDER = ['to_contact','contacted','followed_up','responded','meeting_scheduled','meeting_completed','project_estimated','closed'];
+const LI_MEMBERS = ['Rayna','Marschal'];
 const STATUS_LABELS = {
   to_contact: 'To Contact',
   contacted: 'Contacted',
@@ -707,6 +704,12 @@ function defaultStore(){
 }
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
+function deriveLiStatus(outreach){
+  const vals=Object.values(outreach||{});
+  if(vals.includes('connected')) return 'connected';
+  if(vals.includes('tried')) return 'tried';
+  return '';
+}
 function logChange(action, entityType, entityId, details={}){
   store.auditLog=store.auditLog||[];
   store.auditLog.push({ ts:new Date().toISOString(), action, entityType, entityId, ...details });
@@ -1020,6 +1023,24 @@ function getOrCreateContact(data) {
 }
 
 // ─── "Contacted" details prompt (channel + date + optional email) ─────────────
+let _liOutreach={};
+function renderLiOutreachRows(){
+  const el=document.getElementById('li-outreach-rows'); if(!el) return;
+  el.innerHTML=LI_MEMBERS.map(m=>{
+    const cur=_liOutreach[m]||'';
+    const btn=(val,label)=>{
+      const active=cur===val;
+      const bg=active?(val==='connected'?'#065f46':val==='tried'?'#0369a1':'#374151'):'#f3f4f6';
+      const col=active?'#fff':'#374151';
+      return `<button type="button" onclick="setLiMemberStatus('${m}','${val}')" style="padding:4px 10px;border-radius:6px;border:1px solid ${active?bg:'#d1d5db'};background:${bg};color:${col};font-size:12px;cursor:pointer;font-family:inherit">${label}</button>`;
+    };
+    return `<div style="display:flex;align-items:center;gap:8px"><span style="font-weight:600;font-size:13px;min-width:80px">${m}</span>${btn('','— None')}${btn('tried','🔗 Tried')}${btn('connected','✅ Connected')}</div>`;
+  }).join('');
+}
+function setLiMemberStatus(member,val){
+  _liOutreach[member]=val;
+  renderLiOutreachRows();
+}
 let _contactedCb=null;
 function promptContactedDetails(affectedCids, initId, callback){
   document.getElementById('contacted-detail-modal')?.remove();
@@ -1119,7 +1140,9 @@ function addToInit(initId, data) {
   const isExisting=Object.values(store.initiatives).some(i=>i.id!==initId&&(i.contacts||[]).includes(cid));
   init.contacts.push(cid);
   const autoLinkedin=store.contacts[cid].linkedinUrl?'tried':'';
-  store.contacts[cid].initiatives[initId]={ status:'to_contact', notes:'', lastContact:'', addedAt:new Date().toISOString(), isExistingContact:isExisting, statusHistory:[], linkedinConnectionStatus:autoLinkedin };
+  const autoLiOutreach={};
+  if(autoLinkedin) LI_MEMBERS.forEach(m=>{ autoLiOutreach[m]='tried'; });
+  store.contacts[cid].initiatives[initId]={ status:'to_contact', notes:'', lastContact:'', addedAt:new Date().toISOString(), isExistingContact:isExisting, statusHistory:[], linkedinConnectionStatus:autoLinkedin, linkedinOutreach:autoLiOutreach };
   logChange('contact_added_to_initiative','contact',cid,{initId,initName:init.name,contactName:store.contacts[cid].name});
   saveStore(); return true;
 }
@@ -1234,7 +1257,9 @@ function openNotesModal(initId,cid){
   document.getElementById('notes-date').value=ci.lastContact||'';
   document.getElementById('notes-followup').value=ci.nextFollowUp||'';
   document.getElementById('notes-assignee').value=ci.assignedTo||'';
-  document.getElementById('notes-linkedin-status').value=ci.linkedinConnectionStatus||'';
+  _liOutreach={};
+  LI_MEMBERS.forEach(m=>{ _liOutreach[m]=(ci.linkedinOutreach&&ci.linkedinOutreach[m])||''; });
+  renderLiOutreachRows();
   // Contact-level fields
   document.getElementById('notes-contact-email').value=c?c.email||'':'';
   const liUrl=c?c.linkedinUrl||'':'';
@@ -1274,7 +1299,8 @@ function saveNotes(){
   function applyNotes(date){
     c.initiatives[initId].status=newStatus;
     c.initiatives[initId].channels=getCheckedChannels();
-    c.initiatives[initId].linkedinConnectionStatus=document.getElementById('notes-linkedin-status').value||'';
+    c.initiatives[initId].linkedinOutreach={..._liOutreach};
+    c.initiatives[initId].linkedinConnectionStatus=deriveLiStatus(_liOutreach);
     if(date) c.initiatives[initId].lastContact=date;
     else c.initiatives[initId].lastContact=document.getElementById('notes-date').value;
     c.initiatives[initId].nextFollowUp=document.getElementById('notes-followup').value;
@@ -1287,7 +1313,11 @@ function saveNotes(){
     const newLi=document.getElementById('notes-contact-linkedin').value.trim();
     if(newLi) c.linkedinUrl=newLi.startsWith('http')?newLi:'https://'+newLi;
     // Auto-set LinkedIn status if URL was just added and no status yet
-    if(newLi && !c.initiatives[initId].linkedinConnectionStatus) c.initiatives[initId].linkedinConnectionStatus='tried';
+    if(newLi && !c.initiatives[initId].linkedinConnectionStatus){
+      if(!c.initiatives[initId].linkedinOutreach) c.initiatives[initId].linkedinOutreach={};
+      LI_MEMBERS.forEach(m=>{ if(!c.initiatives[initId].linkedinOutreach[m]) c.initiatives[initId].linkedinOutreach[m]='tried'; });
+      c.initiatives[initId].linkedinConnectionStatus='tried';
+    }
     if(statusChanged) recordStatusHistory(c.initiatives[initId], newStatus, date);
     const liStatus=c.initiatives[initId].linkedinConnectionStatus;
     logChange('notes_saved','contact',notesTarget.cid,{initId,status:newStatus,prevStatus,channels:c.initiatives[initId].channels,linkedinStatus:liStatus,contactName:c.name});
@@ -1829,12 +1859,50 @@ function renderInitDetail(id){
         <button class="tab-btn ${currentDetailTab==='contacts'?'active':''}" onclick="switchTab('contacts','${id}')">List (${cnt})</button>
         <button class="tab-btn ${currentDetailTab==='tasks'?'active':''}" onclick="switchTab('tasks','${id}')">Tasks (${totalTasks})</button>
         <button class="tab-btn ${currentDetailTab==='attachments'?'active':''}" onclick="switchTab('attachments','${id}')">Attachments (${(init.docs||[]).length})</button>
+        <button class="tab-btn ${currentDetailTab==='linkedin'?'active':''}" onclick="switchTab('linkedin','${id}')">🔗 LinkedIn</button>
       </div>
       <div id="detail-tab"></div>
     </div>`;
   renderDetailTab(id);
 }
 
+function renderLinkedInTab(id){
+  const init=store.initiatives.find(i=>i.id===id); if(!init) return;
+  const el=document.getElementById('detail-tab'); if(!el) return;
+  const memberData={};
+  LI_MEMBERS.forEach(m=>{ memberData[m]={tried:[],connected:[]}; });
+  init.contacts.forEach(cid=>{
+    const c=store.contacts[cid]; if(!c) return;
+    const ci=(c.initiatives&&c.initiatives[id])||{};
+    const outreach=ci.linkedinOutreach||{};
+    LI_MEMBERS.forEach(m=>{
+      const val=outreach[m]||'';
+      if(val==='connected'){ memberData[m].connected.push(cid); memberData[m].tried.push(cid); }
+      else if(val==='tried') memberData[m].tried.push(cid);
+    });
+  });
+  const cols=LI_MEMBERS.map(m=>{
+    const d=memberData[m];
+    const rows=init.contacts.filter(cid=>{
+      const c=store.contacts[cid]; if(!c) return false;
+      const ci=(c.initiatives&&c.initiatives[id])||{};
+      return ((ci.linkedinOutreach&&ci.linkedinOutreach[m])||'')!=='';
+    }).map(cid=>{
+      const c=store.contacts[cid];
+      const ci=(c.initiatives&&c.initiatives[id])||{};
+      const val=(ci.linkedinOutreach&&ci.linkedinOutreach[m])||'';
+      const badge=val==='connected'
+        ?'<span style="font-size:11px;background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:10px;font-weight:700">✅ Connected</span>'
+        :'<span style="font-size:11px;background:#e0f2fe;color:#0369a1;padding:2px 7px;border-radius:10px;font-weight:700">🔗 Tried</span>';
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f3f4f6">
+        <div><div style="font-weight:600;font-size:13px;cursor:pointer;color:#4f46e5" onclick="openNotesModal('${id}','${cid}')">${esc(c.name)}</div>${c.company?`<div style="font-size:11px;color:#6b7280">${esc(c.company)}</div>`:''}</div>
+        ${badge}
+      </div>`;
+    }).join('');
+    return `<div style="flex:1;min-width:0;padding:0 12px"><div style="font-weight:700;font-size:15px;margin-bottom:2px">${m}</div><div style="font-size:12px;color:#6b7280;margin-bottom:12px">${d.connected.length} connected · ${d.tried.length} tried to connect</div>${rows||'<div style="color:#9ca3af;font-size:13px;padding:12px 0">No LinkedIn outreach recorded</div>'}</div>`;
+  }).join('<div style="width:1px;background:#e5e7eb;flex-shrink:0"></div>');
+  el.innerHTML=`<div style="display:flex;padding:8px 0">${cols}</div>`;
+}
 function switchTab(tab,id){
   currentDetailTab=tab;
   currentKanbanSearch=''; currentListSearch='';
@@ -1847,6 +1915,7 @@ function renderDetailTab(id){
   const el=document.getElementById('detail-tab'); if(!el) return;
   const cnt=init.contacts.length;
 
+  if(currentDetailTab==='linkedin'){ renderLinkedInTab(id); return; }
   if(currentDetailTab==='board'){ renderInitKanban(id, currentKanbanMode); return; }
   if(currentDetailTab==='attachments'){ renderDocsTab(id); return; }
   if(currentDetailTab==='contacts'){
@@ -3448,9 +3517,13 @@ async function initApp(){
     (_podsInit.contacts||[]).forEach(cid=>{
       const c=store.contacts[cid]; if(!c||!c.linkedinUrl) return;
       const ci=c.initiatives&&c.initiatives[_podsInit.id];
-      if(ci&&!ci.linkedinConnectionStatus){ ci.linkedinConnectionStatus='tried'; _backfilled++; }
+      if(!ci) return;
+      if(!ci.linkedinOutreach) ci.linkedinOutreach={};
+      let changed=false;
+      LI_MEMBERS.forEach(m=>{ if(!ci.linkedinOutreach[m]){ ci.linkedinOutreach[m]='tried'; changed=true; } });
+      if(changed||!ci.linkedinConnectionStatus){ ci.linkedinConnectionStatus=deriveLiStatus(ci.linkedinOutreach); _backfilled++; }
     });
-    if(_backfilled>0){ saveStore(); console.log(`Pods LinkedIn backfill: ${_backfilled} contacts updated`); }
+    if(_backfilled>0){ saveStore(); console.log(`Pods LinkedIn per-member backfill: ${_backfilled} contacts`); }
   }
   document.getElementById('db-loading-overlay')?.remove();
   // Route based on hash, or default to dashboard
