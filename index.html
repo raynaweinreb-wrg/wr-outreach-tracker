@@ -672,7 +672,7 @@ if(!window.cowork){
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
-const APP_VERSION = '1.0.1';
+const APP_VERSION = '1.0.2';
 const STORE_KEY = 'wr_outreach_v4';
 const STATUS_ORDER = ['to_contact','contacted','followed_up','responded','meeting_scheduled','meeting_completed','project_estimated','closed'];
 const LI_MEMBERS = ['Rayna','Marschal'];
@@ -785,55 +785,18 @@ async function _doSave(){
   _pendingSave=false;
   try{
     const newTs=new Date().toISOString();
-    if(_lastKnownDbTs){
-      // Conditional update: only write if nobody saved since we last loaded/saved
-      let updated=null, condError=null;
-      try{
-        const res=await sb.from('app_data')
-          .update({data:store,updated_at:newTs})
-          .eq('id','main')
-          .lte('updated_at',_lastKnownDbTs)
-          .select('updated_at');
-        updated=res.data; condError=res.error;
-      }catch(e){ condError=e; }
-
-      if(condError){
-        // Conditional update unsupported or errored — fall back to unconditional upsert
-        console.warn('Conditional update failed, falling back to upsert:',condError);
-        const {error:upsertErr}=await sb.from('app_data').upsert({id:'main',data:store,updated_at:newTs});
-        if(upsertErr) throw upsertErr;
-        _lastKnownDbTs=newTs;
-      } else if(!updated||!updated.length){
-        // Another session saved more recently — merge then save
-        console.warn('Conflict detected — merging with latest DB data…');
-        const {data:fresh}=await sb.from('app_data').select('data,updated_at').eq('id','main').maybeSingle();
-        if(fresh?.data){
-          store=mergeStores(mergeDefaults(fresh.data), store);
-          store.auditLog=store.auditLog||[];
-          buildCompanyIndex();
-          _lastKnownDbTs=fresh.updated_at;
-        }
-        const mergeTs=new Date().toISOString();
-        const {error:mergeErr}=await sb.from('app_data').upsert({id:'main',data:store,updated_at:mergeTs});
-        if(mergeErr) throw mergeErr;
-        _lastKnownDbTs=mergeTs;
-      } else {
-        _lastKnownDbTs=newTs;
-      }
-    } else {
-      const {error}=await sb.from('app_data').upsert({id:'main',data:store,updated_at:newTs});
-      if(error) throw error;
-      _lastKnownDbTs=newTs;
-    }
+    // Always upsert unconditionally — conflict detection handled by realtime subscription
+    const {error}=await sb.from('app_data').upsert({id:'main',data:store,updated_at:newTs});
+    if(error) throw error;
+    _lastKnownDbTs=newTs;
     _saveRetryCount=0;
     updateSaveIndicator('saved');
   }catch(e){
     console.error('Save failed:',e);
-    if(_saveRetryCount<2){
+    if(_saveRetryCount<3){
       _saveRetryCount++;
-      console.warn(`Retrying save (attempt ${_saveRetryCount})…`);
       updateSaveIndicator('saving');
-      setTimeout(()=>_doSave(), 2000*_saveRetryCount);
+      setTimeout(()=>_doSave(), 1500*_saveRetryCount);
     } else {
       _saveRetryCount=0;
       updateSaveIndicator('error');
