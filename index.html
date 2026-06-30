@@ -672,7 +672,7 @@ if(!window.cowork){
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.1';
 const STORE_KEY = 'wr_outreach_v4';
 const STATUS_ORDER = ['to_contact','contacted','followed_up','responded','meeting_scheduled','meeting_completed','project_estimated','closed'];
 const LI_MEMBERS = ['Rayna','Marschal'];
@@ -774,49 +774,71 @@ function mergeStores(base, ours){
   return merged;
 }
 
+let _saveRetryCount=0;
 function saveStore(){
   clearTimeout(_saveTimer);
   _pendingSave=true;
   updateSaveIndicator('saving');
-  _saveTimer=setTimeout(async()=>{
-    _pendingSave=false;
-    try{
-      const newTs=new Date().toISOString();
-      if(_lastKnownDbTs){
-        // Try conditional update: only write if nobody saved since we last loaded/saved
-        const {data:updated,error}=await sb.from('app_data')
+  _saveTimer=setTimeout(()=>_doSave(),200);
+}
+async function _doSave(){
+  _pendingSave=false;
+  try{
+    const newTs=new Date().toISOString();
+    if(_lastKnownDbTs){
+      // Conditional update: only write if nobody saved since we last loaded/saved
+      let updated=null, condError=null;
+      try{
+        const res=await sb.from('app_data')
           .update({data:store,updated_at:newTs})
           .eq('id','main')
           .lte('updated_at',_lastKnownDbTs)
           .select('updated_at');
-        if(error) throw error;
-        if(!updated||!updated.length){
-          // Another session saved more recently — load their data, merge ours on top, then save
-          console.warn('Conflict detected — merging with latest DB data…');
-          const {data:fresh}=await sb.from('app_data').select('data,updated_at').eq('id','main').maybeSingle();
-          if(fresh?.data){
-            store=mergeStores(mergeDefaults(fresh.data), store);
-            store.auditLog=store.auditLog||[];
-            buildCompanyIndex();
-            _lastKnownDbTs=fresh.updated_at;
-          }
-          // Retry save with merged data (unconditional upsert this time)
-          const mergeTs=new Date().toISOString();
-          await sb.from('app_data').upsert({id:'main',data:store,updated_at:mergeTs});
-          _lastKnownDbTs=mergeTs;
-        } else {
-          _lastKnownDbTs=newTs;
+        updated=res.data; condError=res.error;
+      }catch(e){ condError=e; }
+
+      if(condError){
+        // Conditional update unsupported or errored — fall back to unconditional upsert
+        console.warn('Conditional update failed, falling back to upsert:',condError);
+        const {error:upsertErr}=await sb.from('app_data').upsert({id:'main',data:store,updated_at:newTs});
+        if(upsertErr) throw upsertErr;
+        _lastKnownDbTs=newTs;
+      } else if(!updated||!updated.length){
+        // Another session saved more recently — merge then save
+        console.warn('Conflict detected — merging with latest DB data…');
+        const {data:fresh}=await sb.from('app_data').select('data,updated_at').eq('id','main').maybeSingle();
+        if(fresh?.data){
+          store=mergeStores(mergeDefaults(fresh.data), store);
+          store.auditLog=store.auditLog||[];
+          buildCompanyIndex();
+          _lastKnownDbTs=fresh.updated_at;
         }
+        const mergeTs=new Date().toISOString();
+        const {error:mergeErr}=await sb.from('app_data').upsert({id:'main',data:store,updated_at:mergeTs});
+        if(mergeErr) throw mergeErr;
+        _lastKnownDbTs=mergeTs;
       } else {
-        await sb.from('app_data').upsert({id:'main',data:store,updated_at:newTs});
         _lastKnownDbTs=newTs;
       }
-      updateSaveIndicator('saved');
-    }catch(e){
-      updateSaveIndicator('error');
-      console.error('Save failed:',e);
+    } else {
+      const {error}=await sb.from('app_data').upsert({id:'main',data:store,updated_at:newTs});
+      if(error) throw error;
+      _lastKnownDbTs=newTs;
     }
-  },200);
+    _saveRetryCount=0;
+    updateSaveIndicator('saved');
+  }catch(e){
+    console.error('Save failed:',e);
+    if(_saveRetryCount<2){
+      _saveRetryCount++;
+      console.warn(`Retrying save (attempt ${_saveRetryCount})…`);
+      updateSaveIndicator('saving');
+      setTimeout(()=>_doSave(), 2000*_saveRetryCount);
+    } else {
+      _saveRetryCount=0;
+      updateSaveIndicator('error');
+    }
+  }
 }
 // Force-flush any pending save on page unload (prevents data loss on quick refresh)
 window.addEventListener('beforeunload',()=>{
