@@ -672,7 +672,7 @@ if(!window.cowork){
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
-const APP_VERSION = '1.0.6';
+const APP_VERSION = '1.0.8';
 const STORE_KEY = 'wr_outreach_v4';
 const STATUS_ORDER = ['to_contact','contacted','followed_up','responded','meeting_scheduled','meeting_completed','project_estimated','closed'];
 const LI_MEMBERS = ['Rayna','Marschal'];
@@ -1081,7 +1081,7 @@ function getOrCreateContact(data) {
     if(data._forceCompanyId) store.contacts[existId].companyId=data._forceCompanyId;
     // Update LinkedIn URL if provided and not already set
     if(data.linkedinUrl && !store.contacts[existId].linkedinUrl) store.contacts[existId].linkedinUrl=data.linkedinUrl;
-    return existId;
+    return {cid:existId, isNew:false};
   }
   const id=uid();
   const forcedCoId=data._forceCompanyId||null;
@@ -1090,7 +1090,7 @@ function getOrCreateContact(data) {
   logChange('contact_created','contact',id,{name:store.contacts[id].name,source:data.source||'manual',company:store.contacts[id].company});
   // If no forced company, link via name/email matching
   if(!forcedCoId) linkContactToCompany(id);
-  return id;
+  return {cid:id, isNew:true};
 }
 
 // ─── "Contacted" details prompt (channel + date + optional email) ─────────────
@@ -1236,11 +1236,10 @@ function recordStatusHistory(ci, status, date){
 function addToInit(initId, data) {
   const init=store.initiatives.find(i=>i.id===initId); if(!init) return false;
   const _limit=init.contactLimit||30; if(init.contacts.length>=_limit*2){ toast(`You have a lot of contacts in this initiative (${init.contacts.length}). Consider splitting it up.`); }
-  const cid=getOrCreateContact(data);
+  const {cid, isNew}=getOrCreateContact(data);
   if(init.contacts.includes(cid)){ toast(`${store.contacts[cid].name} already in this initiative.`); return false; }
-  const isExisting=Object.values(store.initiatives).some(i=>i.id!==initId&&(i.contacts||[]).includes(cid));
   init.contacts.push(cid);
-  store.contacts[cid].initiatives[initId]={ status:'to_contact', notes:'', lastContact:'', addedAt:new Date().toISOString(), isExistingContact:isExisting, statusHistory:[], linkedinConnectionStatus:'', linkedinOutreach:{} };
+  store.contacts[cid].initiatives[initId]={ status:'to_contact', notes:'', lastContact:'', addedAt:new Date().toISOString(), isExistingContact:!isNew, statusHistory:[], linkedinConnectionStatus:'', linkedinOutreach:{} };
   logChange('contact_added_to_initiative','contact',cid,{initId,initName:init.name,contactName:store.contacts[cid].name});
   saveStore(); return true;
 }
@@ -1697,14 +1696,12 @@ function addFromSug(s){
   const _lim2=init.contactLimit||30; if(init.contacts.length>=_lim2*2){ toast(`You have a lot of contacts in this initiative (${init.contacts.length}). Consider splitting it up.`); }
 
   // If the suggestion is already a stored contact (from roster import), link directly
-  let cid = store.contacts[s.id] ? s.id : null;
-  if (!cid) {
-    cid = getOrCreateContact({name:s.name,company:s.company,email:s.email||'',role:s.role||'',source:s.source,clickupId:s.clickupId||null,hsId:s.hsId||null});
-  }
+  let cid, isNewContact;
+  if(store.contacts[s.id]){ cid=s.id; isNewContact=false; }
+  else { const r=getOrCreateContact({name:s.name,company:s.company,email:s.email||'',role:s.role||'',source:s.source,clickupId:s.clickupId||null,hsId:s.hsId||null}); cid=r.cid; isNewContact=r.isNew; }
   if(init.contacts.includes(cid)){ toast(`${store.contacts[cid].name} already in this initiative.`); return; }
-  const isExisting2=Object.values(store.initiatives).some(i=>i.id!==currentInitId&&(i.contacts||[]).includes(cid));
   init.contacts.push(cid);
-  store.contacts[cid].initiatives[currentInitId]={ status:'to_contact', notes:'', lastContact:'', addedAt:new Date().toISOString(), isExistingContact:isExisting2, statusHistory:[] };
+  store.contacts[cid].initiatives[currentInitId]={ status:'to_contact', notes:'', lastContact:'', addedAt:new Date().toISOString(), isExistingContact:!isNewContact, statusHistory:[], linkedinConnectionStatus:'', linkedinOutreach:{} };
   saveStore();
 
   renderInitDetail(currentInitId);
@@ -2708,12 +2705,12 @@ async function handleInitCSVUpload(event, initId, uploadType='contacts'){
 
       // Store profile/strategy docs at company level
       if(co){
-        if(profileDocUrl&&!(co.docs||[]).some(d=>d.url===profileDocUrl)){
-          if(!co.docs) co.docs=[];
+        if(!co.docs) co.docs=[];
+        const normalize=u=>u.toLowerCase().replace(/\s+/g,'');
+        if(profileDocUrl&&!co.docs.some(d=>d.url&&normalize(d.url)===normalize(profileDocUrl))){
           co.docs.push({id:uid(),name:'Company Profile',url:profileDocUrl,addedAt:new Date().toISOString()});
         }
-        if(strategyDocUrl&&!(co.docs||[]).some(d=>d.url===strategyDocUrl)){
-          if(!co.docs) co.docs=[];
+        if(strategyDocUrl&&!co.docs.some(d=>d.url&&normalize(d.url)===normalize(strategyDocUrl))){
           co.docs.push({id:uid(),name:'Strategy Report',url:strategyDocUrl,addedAt:new Date().toISOString()});
         }
       }
@@ -3072,7 +3069,7 @@ function renderAnalytics(){
       const ci=(c.initiatives&&c.initiatives[init.id])||{status:'to_contact'};
       if(!addedInMonth(ci)&&_analyticsMonth!=='all') return; // for month view, only count contacts added that month
       t.total++;
-      if(isExistingRelationship(c)) t.existing++; else t.newContacts++;
+      if(ci.isExistingContact) t.existing++; else t.newContacts++;
       if(reachedStatusInMonth(ci,'meeting_scheduled','meeting_completed')) t.meetings++;
       if(reachedStatusInMonth(ci,'meeting_completed')) t.completed++;
       if(reachedStatusInMonth(ci,'closed')) t.closed++;
@@ -3111,32 +3108,46 @@ function renderAnalytics(){
   const pipelineEl=document.getElementById('perf-table');
   if(!store.initiatives.length){ pipelineEl.innerHTML='<div class="empty-state"><div>No initiatives yet</div></div>'; return; }
 
-  // Helper: is this contact an "existing relationship" (from HubSpot/ClickUp) vs new cold contact?
-  function isExistingRelationship(c){ return c&&(c.source==='hubspot'||c.source==='HubSpot'||c.source==='clickup'||c.source==='ClickUp'); }
+  // Build audit log index: contact_added_to_initiative events keyed by cid+initId
+  const auditAddedIndex={};
+  (store.auditLog||[]).forEach(l=>{
+    if(l.action==='contact_added_to_initiative'&&l.entityId&&l.initId){
+      const key=l.entityId+'|'+l.initId;
+      if(!auditAddedIndex[key]) auditAddedIndex[key]=l.ts;
+    }
+  });
+  // Also index contact_created events by cid
+  const auditCreatedIndex={};
+  (store.auditLog||[]).forEach(l=>{ if(l.action==='contact_created'&&l.entityId&&!auditCreatedIndex[l.entityId]) auditCreatedIndex[l.entityId]=l.ts; });
+
+  // Helper: get the best available addedAt for a contact+initiative entry
+  function getAddedAt(cid, initId, ci){
+    if(ci.addedAt) return ci.addedAt;
+    return auditAddedIndex[cid+'|'+initId] || auditCreatedIndex[cid] || null;
+  }
 
   // Monthly breakdown table of contacts added
   let monthlyRows='';
   if(_analyticsMonth==='all'&&months.length){
     const mData={};
-    const noDateKey='Unknown Date';
-    Object.values(store.contacts).forEach(c=>{
+    Object.entries(store.contacts).forEach(([cid,c])=>{
       Object.entries(c.initiatives||{}).forEach(([initId,ci])=>{
-        const m=ci.addedAt?ci.addedAt.substring(0,7):noDateKey;
+        const ts=getAddedAt(cid,initId,ci);
+        const m=ts?ts.substring(0,7):null; if(!m) return;
         if(!mData[m]) mData[m]={newC:0,existingC:0};
-        if(isExistingRelationship(c)) mData[m].existingC++; else mData[m].newC++;
+        if(ci.isExistingContact) mData[m].existingC++; else mData[m].newC++;
       });
     });
-    const sortedMonths=Object.keys(mData).filter(m=>m!==noDateKey).sort().reverse();
-    if(mData[noDateKey]) sortedMonths.push(noDateKey);
+    const sortedMonths=Object.keys(mData).sort().reverse();
     monthlyRows=`<div style="margin-bottom:24px">
       <div style="font-weight:700;font-size:13px;margin-bottom:10px">Contacts Added to Pipeline by Month</div>
-      <div style="font-size:11px;color:#9ca3af;margin-bottom:8px">Existing = imported from HubSpot or ClickUp &nbsp;·&nbsp; New = cold/manual contacts</div>
+      <div style="font-size:11px;color:#9ca3af;margin-bottom:8px">New = contact was brand new to the system &nbsp;·&nbsp; Existing = contact was already in another initiative</div>
       <div style="overflow-x:auto"><table>
-        <thead><tr><th>Month</th><th>New Cold Contacts</th><th>Existing Relationships</th><th>Total</th></tr></thead>
+        <thead><tr><th>Month</th><th>New Contacts</th><th>Existing Contacts</th><th>Total</th></tr></thead>
         <tbody>
           ${sortedMonths.map(m=>{
             const d=mData[m];
-            const label=m===noDateKey?'<span style="color:#9ca3af">Date Unknown</span>':new Date(m+'-15').toLocaleDateString('en-US',{year:'numeric',month:'long'});
+            const label=new Date(m+'-15').toLocaleDateString('en-US',{year:'numeric',month:'long'});
             return `<tr>
               <td style="font-weight:600">${label}</td>
               <td><span style="color:#4f46e5;font-weight:600">${d.newC}</span> <span style="font-size:11px;color:#9ca3af">new</span></td>
@@ -3373,20 +3384,21 @@ function openCompanyDetail(coId, initId){
           ${co.triggerSignals?`<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Trigger Signals</div><div style="font-size:13px;color:#374151;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px">${esc(co.triggerSignals)}</div></div>`:''}
           ${co.personalizationAngle?`<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Personalization Angle</div><div style="font-size:13px;color:#374151;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px">${esc(co.personalizationAngle)}</div></div>`:''}
           ${(co.docs&&co.docs.length)?`<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Documents</div>
-            ${co.docs.map(d=>{
+            ${co.docs.map((d,di)=>{
               const icon = d.html ? '📝' : d.data ? '📁' : '🔗';
+              const deleteBtn=`<button onclick="event.stopPropagation();const co=store.companies['${coId}'];if(co){co.docs.splice(${di},1);saveStore();}document.getElementById('co-detail-overlay')?.remove();openCompanyDetail('${coId}')" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:14px;padding:2px 4px;line-height:1" title="Remove">✕</button>`;
               let inner;
               if(d.url){
                 const href = d.url.startsWith('http') ? d.url : 'https://'+d.url;
-                inner = `<a href="${esc(href)}" target="_blank" style="flex:1;font-size:13px;color:#7c3aed;font-weight:500;text-decoration:underline">${esc(d.name)}</a>`;
+                inner = `<a href="${href}" target="_blank" rel="noopener noreferrer" style="flex:1;font-size:13px;color:#7c3aed;font-weight:500;text-decoration:underline">${esc(d.name)}</a>`;
               } else if(d.data){
-                inner = `<a href="${esc(d.data)}" download="${esc(d.name)}" style="flex:1;font-size:13px;color:#7c3aed;font-weight:500;text-decoration:underline">${esc(d.name)}</a>`;
+                inner = `<a href="${d.data}" download="${esc(d.name)}" style="flex:1;font-size:13px;color:#7c3aed;font-weight:500;text-decoration:underline">${esc(d.name)}</a>`;
               } else if(d.html){
                 inner = `<span style="flex:1;font-size:13px;color:#7c3aed;font-weight:500;cursor:pointer;text-decoration:underline" onclick="showCompanyNote('${esc(d.id)}','${coId}')">${esc(d.name)}</span>`;
               } else {
                 inner = `<span style="flex:1;font-size:13px;color:#374151">${esc(d.name)}</span>`;
               }
-              return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f3f4f6"><span style="font-size:16px">${icon}</span>${inner}</div>`;
+              return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f3f4f6"><span style="font-size:16px">${icon}</span>${inner}${deleteBtn}</div>`;
             }).join('')}
           </div>`:''}
 
@@ -3746,7 +3758,7 @@ async function syncHubSpot(silent=false){
           if(email&&!existing.email) existing.email=email;
           updated++;
         } else {
-          getOrCreateContact({name,email,company,role,source:'hubspot',hsId});
+          getOrCreateContact({name,email,company,role,source:'hubspot',hsId}); // isNew ignored — HubSpot sync doesn't add to initiatives
           added++;
         }
       }
