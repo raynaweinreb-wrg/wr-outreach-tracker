@@ -672,7 +672,7 @@ if(!window.cowork){
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.1.1';
 const STORE_KEY = 'wr_outreach_v4';
 const STATUS_ORDER = ['to_contact','contacted','followed_up','responded','meeting_scheduled','meeting_completed','project_estimated','closed'];
 const LI_MEMBERS = ['Rayna','Marschal'];
@@ -775,6 +775,7 @@ function mergeStores(base, ours){
 }
 
 let _saveRetryCount=0;
+let _saveInFlight=false; // true while an async upsert is in-progress
 function saveStore(){
   clearTimeout(_saveTimer);
   _pendingSave=true;
@@ -783,9 +784,9 @@ function saveStore(){
 }
 async function _doSave(){
   _pendingSave=false;
+  _saveInFlight=true;
   try{
     const newTs=new Date().toISOString();
-    // Always upsert unconditionally — conflict detection handled by realtime subscription
     const {error}=await sb.from('app_data').upsert({id:'main',data:store,updated_at:newTs});
     if(error) throw error;
     _lastKnownDbTs=newTs;
@@ -796,12 +797,15 @@ async function _doSave(){
     if(_saveRetryCount<3){
       _saveRetryCount++;
       updateSaveIndicator('saving');
+      _saveInFlight=false;
       setTimeout(()=>_doSave(), 1500*_saveRetryCount);
+      return;
     } else {
       _saveRetryCount=0;
       updateSaveIndicator('error');
     }
   }
+  _saveInFlight=false;
 }
 // Force-flush any pending save on page unload (prevents data loss on quick refresh)
 window.addEventListener('beforeunload',()=>{
@@ -3850,9 +3854,12 @@ async function initApp(){
   sb.channel('store-sync')
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_data',filter:'id=eq.main'},
       payload=>{
-        if(_pendingSave) return; // We just saved — don't overwrite our own write
+        if(_pendingSave||_saveInFlight) return; // Our save is pending or in-flight — don't overwrite
         const fresh=payload.new?.data;
+        const freshTs=payload.new?.updated_at;
         if(!fresh) return;
+        // Skip stale events (same or older timestamp than what we already have)
+        if(freshTs&&_lastKnownDbTs&&freshTs<=_lastKnownDbTs) return;
         store=mergeDefaults(fresh);
         store.auditLog=store.auditLog||[];
         buildCompanyIndex();
