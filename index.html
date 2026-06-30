@@ -2003,6 +2003,8 @@ function toggleLiStatus(initId, cid, member){
   saveStore();
   renderLinkedInTab(initId);
 }
+let _liFilter='all'; // 'all' | 'connected' | 'tried'
+function setLiFilter(f, initId){ _liFilter=f; renderLinkedInTab(initId); }
 function renderLinkedInTab(id){
   const init=store.initiatives.find(i=>i.id===id); if(!init) return;
   const el=document.getElementById('detail-tab'); if(!el) return;
@@ -2018,12 +2020,20 @@ function renderLinkedInTab(id){
       else if(val==='tried') memberData[m].tried.push(cid);
     });
   });
+
+  const filterBtns=[['all','All'],['connected','✅ Connected'],['tried','🔗 Tried']].map(([f,label])=>`
+    <button onclick="setLiFilter('${f}','${id}')" style="padding:5px 14px;border-radius:20px;border:1.5px solid ${_liFilter===f?'#4f46e5':'#d1d5db'};background:${_liFilter===f?'#4f46e5':'#fff'};color:${_liFilter===f?'#fff':'#374151'};font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">${label}</button>
+  `).join('');
+
   const cols=LI_MEMBERS.map(m=>{
     const d=memberData[m];
     const rows=init.contacts.filter(cid=>{
       const c=store.contacts[cid]; if(!c) return false;
       const ci=(c.initiatives&&c.initiatives[id])||{};
-      return ((ci.linkedinOutreach&&ci.linkedinOutreach[m])||'')!=='';
+      const val=(ci.linkedinOutreach&&ci.linkedinOutreach[m])||'';
+      if(_liFilter==='connected') return val==='connected';
+      if(_liFilter==='tried') return val==='tried';
+      return val!==''; // 'all' = any status
     }).map(cid=>{
       const c=store.contacts[cid];
       const ci=(c.initiatives&&c.initiatives[id])||{};
@@ -2036,9 +2046,16 @@ function renderLinkedInTab(id){
         ${badge}
       </div>`;
     }).join('');
-    return `<div style="flex:1;min-width:0;padding:0 12px"><div style="font-weight:700;font-size:15px;margin-bottom:2px">${m}</div><div style="font-size:12px;color:#6b7280;margin-bottom:12px">${d.connected.length} connected · ${d.tried.length} tried to connect</div>${rows||'<div style="color:#9ca3af;font-size:13px;padding:12px 0">No LinkedIn outreach recorded</div>'}</div>`;
+    const emptyMsg=_liFilter==='connected'?'No connections yet':_liFilter==='tried'?'No tried outreach yet':'No LinkedIn outreach recorded';
+    return `<div style="flex:1;min-width:0;padding:0 12px"><div style="font-weight:700;font-size:15px;margin-bottom:2px">${m}</div><div style="font-size:12px;color:#6b7280;margin-bottom:12px">${d.connected.length} connected · ${d.tried.length} tried to connect</div>${rows||`<div style="color:#9ca3af;font-size:13px;padding:12px 0">${emptyMsg}</div>`}</div>`;
   }).join('<div style="width:1px;background:#e5e7eb;flex-shrink:0"></div>');
-  el.innerHTML=`<div style="display:flex;padding:8px 0">${cols}</div>`;
+
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;gap:8px;padding:12px 0 16px;border-bottom:1px solid #f0f0f0;margin-bottom:4px">
+      <span style="font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.04em">Filter:</span>
+      ${filterBtns}
+    </div>
+    <div style="display:flex;padding:8px 0">${cols}</div>`;
 }
 function switchTab(tab,id){
   currentDetailTab=tab;
