@@ -1378,12 +1378,7 @@ function saveNotes(){
     if(newEmail) c.email=newEmail;
     const newLi=document.getElementById('notes-contact-linkedin').value.trim();
     if(newLi) c.linkedinUrl=newLi.startsWith('http')?newLi:'https://'+newLi;
-    // Auto-set LinkedIn status if URL was just added and no status yet
-    if(newLi && !c.initiatives[initId].linkedinConnectionStatus){
-      if(!c.initiatives[initId].linkedinOutreach) c.initiatives[initId].linkedinOutreach={};
-      LI_MEMBERS.forEach(m=>{ if(!c.initiatives[initId].linkedinOutreach[m]) c.initiatives[initId].linkedinOutreach[m]='tried'; });
-      c.initiatives[initId].linkedinConnectionStatus='tried';
-    }
+    // (auto-set LinkedIn status removed — users set tried/connected manually)
     if(statusChanged) recordStatusHistory(c.initiatives[initId], newStatus, date);
     const liStatus=c.initiatives[initId].linkedinConnectionStatus;
     logChange('notes_saved','contact',notesTarget.cid,{initId,status:newStatus,prevStatus,channels:c.initiatives[initId].channels,linkedinStatus:liStatus,contactName:c.name});
@@ -3742,22 +3737,7 @@ async function initApp(){
   }
   buildCompanyIndex();
   store.auditLog=store.auditLog||[];
-  // One-time backfill: for contacts in the "Pods" initiative that have a LinkedIn URL
-  // but no linkedinConnectionStatus → set 'tried'
-  const _podsInit=store.initiatives.find(i=>i.name&&i.name.toLowerCase().includes('pods'));
-  if(_podsInit){
-    let _backfilled=0;
-    (_podsInit.contacts||[]).forEach(cid=>{
-      const c=store.contacts[cid]; if(!c||!c.linkedinUrl) return;
-      const ci=c.initiatives&&c.initiatives[_podsInit.id];
-      if(!ci) return;
-      if(!ci.linkedinOutreach) ci.linkedinOutreach={};
-      let changed=false;
-      LI_MEMBERS.forEach(m=>{ if(!ci.linkedinOutreach[m]){ ci.linkedinOutreach[m]='tried'; changed=true; } });
-      if(changed||!ci.linkedinConnectionStatus){ ci.linkedinConnectionStatus=deriveLiStatus(ci.linkedinOutreach); _backfilled++; }
-    });
-    if(_backfilled>0){ saveStore(); console.log(`Pods LinkedIn per-member backfill: ${_backfilled} contacts`); }
-  }
+  // (Pods LinkedIn backfill removed — one-time migration complete)
   document.getElementById('db-loading-overlay')?.remove();
   // Route based on hash, or default to dashboard
   if(window.location.hash && window.location.hash.length>1) handleRoute();
