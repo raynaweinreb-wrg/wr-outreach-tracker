@@ -673,7 +673,7 @@ if(!window.cowork){
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
-const APP_VERSION = '1.1.2';
+const APP_VERSION = '1.1.3';
 const STORE_KEY = 'wr_outreach_v4';
 const STATUS_ORDER = ['to_contact','contacted','followed_up','responded','meeting_scheduled','meeting_completed','project_estimated','closed','archived'];
 const LI_MEMBERS = ['Rayna','Marschal'];
@@ -3898,7 +3898,7 @@ async function initApp(){
   }
 
   // ── Real-time cross-session sync ──
-  // When Claude in Chrome (or another tab) saves data, reload it here automatically
+  // When another tab saves data, merge it intelligently rather than overwriting
   sb.channel('store-sync')
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_data',filter:'id=eq.main'},
       payload=>{
@@ -3908,7 +3908,11 @@ async function initApp(){
         if(!fresh) return;
         // Skip stale events (same or older timestamp than what we already have)
         if(freshTs&&_lastKnownDbTs&&freshTs<=_lastKnownDbTs) return;
-        store=mergeDefaults(fresh);
+        // Merge: our in-memory statuses win, but we pick up new contacts/companies from DB
+        const freshDefaults=mergeDefaults(fresh);
+        freshDefaults.auditLog=fresh.auditLog||[];
+        freshDefaults.lastHubSpotSync=fresh.lastHubSpotSync||null;
+        store=mergeStores(freshDefaults, store);
         store.auditLog=store.auditLog||[];
         buildCompanyIndex();
         _lastKnownDbTs=payload.new?.updated_at||new Date().toISOString();
