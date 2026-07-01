@@ -673,7 +673,7 @@ if(!window.cowork){
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
-const APP_VERSION = '1.1.3';
+const APP_VERSION = '1.1.5';
 const STORE_KEY = 'wr_outreach_v4';
 const STATUS_ORDER = ['to_contact','contacted','followed_up','responded','meeting_scheduled','meeting_completed','project_estimated','closed','archived'];
 const LI_MEMBERS = ['Rayna','Marschal'];
@@ -2012,7 +2012,12 @@ function renderInitDetail(id){
   const init=store.initiatives.find(i=>i.id===id); if(!init) return;
   const el=document.getElementById('init-detail');
   const sc=countStatuses(init); const cnt=init.contacts.length; const _goal=init.contactLimit||30;
-  const inPipeline=cnt-(sc.to_contact||0);
+  // Count distinct companies added to this initiative
+  const companiesInPipeline=new Set(init.contacts.map(cid=>{
+    const c=store.contacts[cid]; if(!c) return null;
+    return c.companyId||(c.company||'_none_'+cid);
+  }).filter(Boolean)).size;
+  const inPipeline=companiesInPipeline;
   const meetings=sc.meeting_scheduled||0; const closed=sc.closed||0;
   const doneTasks=(init.tasks||[]).filter(t=>t.done).length; const totalTasks=(init.tasks||[]).length;
   el.innerHTML=`
@@ -2033,7 +2038,7 @@ function renderInitDetail(id){
     </div>
     <div class="detail-stats">
       <div class="detail-stat"><div class="detail-stat-label">Contacts</div><div class="detail-stat-val">${cnt}/${_goal}</div></div>
-      <div class="detail-stat"><div class="detail-stat-label">In Pipeline</div><div class="detail-stat-val">${inPipeline}</div></div>
+      <div class="detail-stat"><div class="detail-stat-label">Companies in Pipeline</div><div class="detail-stat-val">${inPipeline}</div></div>
       <div class="detail-stat"><div class="detail-stat-label">Meetings</div><div class="detail-stat-val">${meetings}</div></div>
       <div class="detail-stat"><div class="detail-stat-label">Closed</div><div class="detail-stat-val">${closed}</div></div>
     </div>
