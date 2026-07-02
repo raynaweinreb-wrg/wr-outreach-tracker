@@ -673,7 +673,7 @@ if(!window.cowork){
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
-const APP_VERSION = '1.1.5';
+const APP_VERSION = '1.1.6';
 const STORE_KEY = 'wr_outreach_v4';
 const STATUS_ORDER = ['to_contact','contacted','followed_up','responded','meeting_scheduled','meeting_completed','project_estimated','closed','archived'];
 const LI_MEMBERS = ['Rayna','Marschal'];
@@ -1269,29 +1269,34 @@ function removeFromInit(initId,cid) {
 }
 
 function quickStatus(initId,cid,status) {
-  const c=store.contacts[cid]; if(!c) return;
-  c.initiatives[initId]=c.initiatives[initId]||{};
-  const prevStatus=c.initiatives[initId].status;
+  // Capture prevStatus now, but look up contact FRESH inside callbacks to avoid stale refs
+  const _c=store.contacts[cid]; if(!_c) return;
+  if(!_c.initiatives[initId]) _c.initiatives[initId]={};
+  const prevStatus=_c.initiatives[initId].status;
   if(status===prevStatus) return;
+  function applyQS(date,channels){
+    const c=store.contacts[cid]; if(!c) return;
+    if(!c.initiatives[initId]) c.initiatives[initId]={};
+    const ci=c.initiatives[initId];
+    ci.status=status;
+    if(date) ci.lastContact=date;
+    else if(status!=='to_contact') ci.lastContact=new Date().toISOString().split('T')[0];
+    if(channels&&channels.length) ci.channels=[...new Set([...(ci.channels||[]),...channels])];
+    recordStatusHistory(ci,status,date);
+    logChange('status_changed','contact',cid,{initId,from:prevStatus,to:status,contactName:c.name,channels});
+  }
   if(status==='contacted'){
     promptContactedDetails([cid], initId, result=>{
       if(!result){ renderDetailTab(initId); return; }
       const {date,channels,email}=result;
-      c.initiatives[initId].status=status;
-      c.initiatives[initId].lastContact=date||new Date().toISOString().split('T')[0];
-      if(channels&&channels.length) c.initiatives[initId].channels=[...new Set([...(c.initiatives[initId].channels||[]),...channels])];
-      if(email&&!c.email) c.email=email;
-      recordStatusHistory(c.initiatives[initId], status, date);
-      logChange('status_changed','contact',cid,{initId,from:prevStatus,to:status,contactName:c.name,channels});
+      applyQS(date,channels);
+      const c=store.contacts[cid];
+      if(email&&c&&!c.email) c.email=email;
       saveStore(); renderDetailTab(initId);
     });
   } else {
     promptStatusDate(status, date=>{
-      c.initiatives[initId].status=status;
-      if(date) c.initiatives[initId].lastContact=date;
-      else if(status!=='to_contact') c.initiatives[initId].lastContact=new Date().toISOString().split('T')[0];
-      recordStatusHistory(c.initiatives[initId], status, date);
-      logChange('status_changed','contact',cid,{initId,from:prevStatus,to:status,contactName:c.name});
+      applyQS(date,[]);
       saveStore(); renderDetailTab(initId);
     });
   }
@@ -1313,27 +1318,38 @@ function quickStatusCompanyPopup(e, initId, key){
 }
 function quickStatusCompany(initId, key, status){
   const init=store.initiatives.find(i=>i.id===initId); if(!init) return;
-  const affected=[]; const affectedCids=[];
+  const affectedCids=[];
   init.contacts.forEach(cid=>{
     const c=store.contacts[cid]; if(!c) return;
     if(c.companyId===key||(!c.companyId&&(c.company||'(No Company)')===key)){
       if(!c.initiatives[initId]) c.initiatives[initId]={};
-      if(c.initiatives[initId].status!==status){ affected.push(c.initiatives[initId]); affectedCids.push(cid); }
+      if(c.initiatives[initId].status!==status) affectedCids.push(cid);
     }
   });
-  if(!affected.length){ renderInitKanban(initId,currentKanbanMode); return; }
+  if(!affectedCids.length){ renderInitKanban(initId,currentKanbanMode); return; }
+  function applyQSC(date,channels){
+    affectedCids.forEach(cid=>{
+      const c=store.contacts[cid]; if(!c) return;
+      if(!c.initiatives[initId]) c.initiatives[initId]={};
+      const ci=c.initiatives[initId]; const prev=ci.status;
+      ci.status=status; ci.lastContact=date||new Date().toISOString().split('T')[0];
+      recordStatusHistory(ci,status,date);
+      if(channels&&channels.length) ci.channels=[...new Set([...(ci.channels||[]),...channels])];
+      logChange('status_changed','contact',cid,{initId,from:prev,to:status,contactName:c.name,channels});
+    });
+  }
   if(status==='contacted'){
     promptContactedDetails(affectedCids,initId,result=>{
       if(!result){ renderInitKanban(initId,currentKanbanMode); return; }
       const {date,channels,email,selectedCid}=result;
-      affected.forEach(ci=>{ ci.status=status; ci.lastContact=date||new Date().toISOString().split('T')[0]; recordStatusHistory(ci,status,date); if(channels&&channels.length) ci.channels=[...new Set([...(ci.channels||[]),...channels])]; });
+      applyQSC(date,channels);
       const emailTargetCid=selectedCid||(affectedCids.length===1?affectedCids[0]:null);
       if(emailTargetCid&&email){ const c=store.contacts[emailTargetCid]; if(c) c.email=email; }
       saveStore(); renderInitKanban(initId,currentKanbanMode);
     });
   } else {
     promptStatusDate(status,date=>{
-      affected.forEach(ci=>{ ci.status=status; if(date) ci.lastContact=date; else if(status!=='to_contact') ci.lastContact=new Date().toISOString().split('T')[0]; recordStatusHistory(ci,status,date); });
+      applyQSC(date,[]);
       saveStore(); renderInitKanban(initId,currentKanbanMode);
     });
   }
@@ -2831,36 +2847,47 @@ function kanbanDrop(e, status, initId){
   e.currentTarget.classList.remove('drag-over');
   if(!_dragData||_dragData.initId!==initId){ _dragData=null; return; }
   const {type,key}=_dragData; _dragData=null;
-  // Collect affected contacts + their cids
-  const affected=[]; const affectedCids=[];
+  // Collect affected cids only — look up contacts FRESH inside callbacks to avoid stale refs
+  const affectedCids=[];
   if(type==='contact'){
     const c=store.contacts[key]; if(!c) return;
     if(!c.initiatives[initId]) c.initiatives[initId]={};
-    if(c.initiatives[initId].status!==status){ affected.push(c.initiatives[initId]); affectedCids.push(key); }
+    if(c.initiatives[initId].status!==status) affectedCids.push(key);
   } else if(type==='company'){
     const init=store.initiatives.find(i=>i.id===initId); if(!init) return;
     init.contacts.forEach(cid=>{
       const c=store.contacts[cid]; if(!c) return;
       if(c.companyId===key||(!c.companyId&&(c.company||'(No Company)')===key)){
         if(!c.initiatives[initId]) c.initiatives[initId]={};
-        if(c.initiatives[initId].status!==status){ affected.push(c.initiatives[initId]); affectedCids.push(cid); }
+        if(c.initiatives[initId].status!==status) affectedCids.push(cid);
       }
     });
   }
-  if(!affected.length){ renderInitKanban(initId, currentKanbanMode); return; }
+  if(!affectedCids.length){ renderInitKanban(initId, currentKanbanMode); return; }
+  function applyStatus(date, channels){
+    affectedCids.forEach(cid=>{
+      const c=store.contacts[cid]; if(!c) return;
+      if(!c.initiatives[initId]) c.initiatives[initId]={};
+      const ci=c.initiatives[initId];
+      const prev=ci.status;
+      ci.status=status; ci.lastContact=date||new Date().toISOString().split('T')[0];
+      recordStatusHistory(ci,status,date);
+      if(channels&&channels.length) ci.channels=[...new Set([...(ci.channels||[]),...channels])];
+      logChange('status_changed','contact',cid,{initId,from:prev,to:status,contactName:c.name,channels});
+    });
+  }
   if(status==='contacted'){
     promptContactedDetails(affectedCids, initId, result=>{
       if(!result){ renderInitKanban(initId, currentKanbanMode); return; }
       const {date,channels,email,selectedCid}=result;
-      affected.forEach(ci=>{ ci.status=status; ci.lastContact=date||new Date().toISOString().split('T')[0]; recordStatusHistory(ci,status,date); if(channels&&channels.length) ci.channels=[...new Set([...(ci.channels||[]),...channels])]; });
-      // Save email to the right contact
-      const emailTargetCid=selectedCid||( affectedCids.length===1?affectedCids[0]:null );
+      applyStatus(date,channels);
+      const emailTargetCid=selectedCid||(affectedCids.length===1?affectedCids[0]:null);
       if(emailTargetCid&&email){ const c=store.contacts[emailTargetCid]; if(c) c.email=email; }
       saveStore(); renderInitKanban(initId, currentKanbanMode);
     });
   } else {
     promptStatusDate(status, date=>{
-      affected.forEach(ci=>{ ci.status=status; if(date) ci.lastContact=date; else ci.lastContact=new Date().toISOString().split('T')[0]; recordStatusHistory(ci,status,date); });
+      applyStatus(date,[]);
       saveStore(); renderInitKanban(initId, currentKanbanMode);
     });
   }
